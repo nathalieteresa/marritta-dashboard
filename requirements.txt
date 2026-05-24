@@ -1,0 +1,8 @@
+streamlit
+pandas
+plotly
+playwright
+supabase
+requests
+holidays
+deep-translator
