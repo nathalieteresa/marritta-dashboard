@@ -718,13 +718,12 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
         competitor_df = pd.DataFrame(clean_listings)
         competitor_df = competitor_df.dropna(subset=["Competitor Price"])
         competitor_df = competitor_df.drop_duplicates(subset=["Listing", "Competitor Price"])
-        st.write("TOTAL RAW LISTINGS:", len(competitor_df))    
-
+    
         direct_df = competitor_df[competitor_df["direct_competitor"] == True]
         market_df = competitor_df[competitor_df["Relevance"].isin(["High", "Medium"])]
         qualified_df = competitor_df[competitor_df["qualified_competitor"] == True]
         
-        if len(qualified_df) >= 8:
+        if len(qualified_df) >= 2:
             pricing_df = qualified_df
             pricing_source = "Qualified Marenas-like competitors"
         elif len(direct_df) >= 3:
