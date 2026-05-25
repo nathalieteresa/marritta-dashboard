@@ -58,8 +58,9 @@ def get_airbnb_prices(checkin, checkout):
                 text = card.inner_text()
                 text_lower = text.lower()
 
-                if not any(keyword in text_lower for keyword in allowed_keywords):
-                    continue
+                # No eliminar por keywords aquí. Mejor analizar todos y clasificarlos después.
+                # if not any(keyword in text_lower for keyword in allowed_keywords):
+                #     continue
 
                 link = None
                 hrefs = card.locator("a").evaluate_all(
@@ -203,6 +204,8 @@ def get_airbnb_prices(checkin, checkout):
                     guest_count = int(guest_match.group(1))
 
                 # Exclude properties for more than 6 guests
+                penalty_score = 0
+                penalty_reasons = []
                 guest_penalty = 0
 
                 if guest_count is not None and guest_count > 6:
@@ -235,9 +238,6 @@ def get_airbnb_prices(checkin, checkout):
                 if any(x in combined_text for x in ["direct ocean view", "ocean view", "oceanfront", "beachfront", "beach access", "private beach"]):
                     fit_score += 3
                     fit_reasons.append("ocean view/access")
-
-                penalty_score = 0
-                penalty_reasons = []
 
                 if "aventura" in combined_text and "marenas" not in combined_text:
                     penalty_score += 4
