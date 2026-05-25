@@ -203,8 +203,11 @@ def get_airbnb_prices(checkin, checkout):
                     guest_count = int(guest_match.group(1))
 
                 # Exclude properties for more than 6 guests
+                guest_penalty = 0
+
                 if guest_count is not None and guest_count > 6:
-                    continue
+                    guest_penalty = 3
+                    penalty_reasons.append("more than 6 guests")
 
                 fit_score = 0
                 fit_reasons = []
@@ -250,10 +253,16 @@ def get_airbnb_prices(checkin, checkout):
                     penalty_score += 2
                     penalty_reasons.append("possible private home")
 
-                fit_score = fit_score - penalty_score
+                fit_score = fit_score - penalty_score - guest_penalty
+
+                if fit_score >= 5:
+                    match_quality = "Qualified match"
+                elif fit_score >= 3:
+                    match_quality = "Partial match"
+                else:
+                    match_quality = "Low match"
 
                 qualified_competitor = fit_score >= 3
-
                 listings.append({
                     "title": title,
                     "link": link,
@@ -267,6 +276,7 @@ def get_airbnb_prices(checkin, checkout):
                     "penalty_reasons": ", ".join(penalty_reasons),
                     "guest_count": guest_count,
                     "qualified_competitor": qualified_competitor,
+                    "match_quality": match_quality,
                 })
 
             except:
