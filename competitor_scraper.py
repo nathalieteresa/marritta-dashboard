@@ -36,7 +36,9 @@ def get_airbnb_prices(checkin, checkout):
             headless=True,
             args=[
                 "--no-sandbox",
-                "--disable-dev-shm-usage"
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--single-process"
             ]
         )
         page = browser.new_page()
