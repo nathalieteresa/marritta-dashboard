@@ -252,7 +252,7 @@ def get_airbnb_prices(checkin, checkout):
 
                 fit_score = fit_score - penalty_score
 
-                qualified_competitor = fit_score >= 5
+                qualified_competitor = fit_score >= 3
 
                 listings.append({
                     "title": title,
