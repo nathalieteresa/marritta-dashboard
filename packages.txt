@@ -8,4 +8,3 @@ libgbm1
 libxkbcommon0
 libpango-1.0-0
 libasound2
-chromium
