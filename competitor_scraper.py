@@ -58,9 +58,7 @@ def get_airbnb_prices(checkin, checkout):
                 text = card.inner_text()
                 text_lower = text.lower()
 
-                # No eliminar por keywords aquí. Mejor analizar todos y clasificarlos después.
-                # if not any(keyword in text_lower for keyword in allowed_keywords):
-                #     continue
+                #No eliminar por keywords aquí. Mejor analizar todos y clasificarlos después.
 
                 link = None
                 hrefs = card.locator("a").evaluate_all(
@@ -206,8 +204,8 @@ def get_airbnb_prices(checkin, checkout):
                 # Exclude properties for more than 6 guests
                 penalty_score = 0
                 penalty_reasons = []
+                
                 guest_penalty = 0
-
                 if guest_count is not None and guest_count > 6:
                     guest_penalty = 3
                     penalty_reasons.append("more than 6 guests")
