@@ -1,7 +1,7 @@
 streamlit
 pandas
 plotly
-playwright
+playwright==1.47.0
 supabase
 requests
 holidays
