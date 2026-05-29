@@ -1,37 +1,69 @@
 import holidays
 import pandas as pd
+import requests
+import streamlit as st
 
 
 def get_us_holidays_in_range(start_date, end_date):
-    years = list(range(start_date.year, end_date.year + 1))
-
-    holiday_sources = [
-        holidays.US(years=years),
-        holidays.US(years=years, categories=["public"]),
-        holidays.US(years=years, categories=["observed"]),
-        holidays.US(years=years, categories=["religious"]),
-    ]
-
     detected = []
     seen = set()
 
-    date_range = pd.date_range(start_date, end_date)
+    years = list(range(start_date.year, end_date.year + 1))
 
-    for d in date_range:
+    # Federal / public US holidays
+    us_holidays = holidays.US(years=years)
+
+    for d in pd.date_range(start_date, end_date):
         day = d.date()
 
-        for source in holiday_sources:
-            if day in source:
-                name = source[day]
+        if day in us_holidays:
+            name = str(us_holidays[day])
+            key = (name, day)
 
-                key = (str(name), day)
-                if key not in seen:
-                    detected.append({
-                        "name": str(name),
-                        "date": day,
-                        "impact": classify_holiday_impact(str(name))
-                    })
-                    seen.add(key)
+            if key not in seen:
+                detected.append({
+                    "name": name,
+                    "date": day,
+                    "impact": classify_holiday_impact(name)
+                })
+                seen.add(key)
+
+    # Religious / cultural holidays from Calendarific API
+    api_key = st.secrets.get("CALENDARIFIC_API_KEY", None)
+
+    if api_key:
+        for year in years:
+            try:
+                url = "https://calendarific.com/api/v2/holidays"
+                params = {
+                    "api_key": api_key,
+                    "country": "US",
+                    "year": year,
+                    "type": "religious"
+                }
+
+                response = requests.get(url, params=params, timeout=10)
+                data = response.json()
+
+                holidays_list = data.get("response", {}).get("holidays", [])
+
+                for h in holidays_list:
+                    holiday_date = pd.to_datetime(h["date"]["iso"]).date()
+
+                    if start_date <= holiday_date <= end_date:
+                        name = h["name"]
+                        key = (name, holiday_date)
+
+                        if key not in seen:
+                            detected.append({
+                                "name": name,
+                                "date": holiday_date,
+                                "impact": classify_holiday_impact(name)
+                            })
+                            seen.add(key)
+
+            except Exception:
+                pass
 
     return detected
 
@@ -44,9 +76,7 @@ def classify_holiday_impact(name):
         "easter",
         "christmas",
         "thanksgiving",
-        "new year's",
         "new year",
-        "independence day",
         "hanukkah",
         "yom kippur",
         "rosh hashanah",
