@@ -714,6 +714,17 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
             })
 
         competitor_df = pd.DataFrame(clean_listings)
+        st.write("RAW SCRAPER RESULTS:", len(competitor_df))
+        st.dataframe(
+            competitor_df[
+                [
+                    "Listing",
+                    "fit_score",
+                    "qualified_competitor",
+                    "direct_competitor"
+                ]
+            ]
+        )
         competitor_df = competitor_df.dropna(subset=["Competitor Price"])
         competitor_df = competitor_df.drop_duplicates(subset=["Listing", "Competitor Price"])
     
