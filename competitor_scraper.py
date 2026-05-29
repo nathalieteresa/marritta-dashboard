@@ -281,12 +281,15 @@ def get_airbnb_prices(checkin, checkout):
                 pass
 
         browser.close()
+        print("TOTAL CARDS SCRAPED:", count)
+        print("TOTAL LISTINGS AFTER FILTERS:", len(listings))
 
-        print("TOTAL LISTINGS:", len(listings))
         for x in listings[:10]:
             print(
                 x["title"],
-                "| FIT:", x["fit_score"],
-                "| QUALIFIED:", x["qualified_competitor"]
+                "| guests:", x.get("guest_count"),
+                "| fit:", x.get("fit_score"),
+                "| direct:", x.get("direct_competitor")
             )
-    return listings
+
+        return listings
