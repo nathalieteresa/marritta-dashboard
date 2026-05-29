@@ -288,8 +288,10 @@ def get_airbnb_prices(checkin, checkout):
                 if bathroom_count is not None and bathroom_count < 3:
                     continue
 
+                # No eliminar si no detecta oceanfront.
+                # Solo penalizar/clasificar después.
                 if not is_oceanfront:
-                    continue
+                    penalty_reasons.append("oceanfront not confirmed")
 
                 # SCORING
                 if is_target_resort:
@@ -320,11 +322,11 @@ def get_airbnb_prices(checkin, checkout):
                     fit_score += 1
                     fit_reasons.append("kitchen")
 
-                qualified_competitor = fit_score >= 8
+                qualified_competitor = fit_score >= 5
 
                 if fit_score >= 10:
                     match_quality = "Strong match"
-                elif fit_score >= 8:
+                elif fit_score >= 5:
                     match_quality = "Qualified match"
                 else:
                     match_quality = "Partial match"
