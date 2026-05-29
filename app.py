@@ -3,7 +3,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
-os.system("playwright install chromium")
 from datetime import date, timedelta
 from events_api import get_miami_events
 from database import supabase
