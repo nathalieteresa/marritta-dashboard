@@ -1,6 +1,52 @@
 from playwright.sync_api import sync_playwright
 import re
 
+TARGET_RESORTS = [
+    "sole miami",
+    "solé miami",
+    "sole",
+    "solé",
+    "trump international",
+    "trump",
+    "marco polo",
+    "ramada",
+    "doubletree ocean point",
+    "doubletree",
+    "the sunny curio",
+    "curio",
+    "ocean reserve",
+    "marenas",
+    "private condos at trump",
+    "private condos at marenas",
+]
+
+BANNED_PROPERTY_TYPES = [
+    "entire home",
+    "home in",
+    "house",
+    "villa",
+    "townhouse",
+]
+
+OCEANFRONT_KEYWORDS = [
+    "oceanfront",
+    "ocean front",
+    "beachfront",
+    "beach front",
+    "direct ocean view",
+    "ocean view",
+    "beach access",
+    "private beach",
+    "waterfront",
+]
+
+
+def extract_number(patterns, text):
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return int(match.group(1))
+    return None
 
 def get_airbnb_prices(checkin, checkout):
 
@@ -195,72 +241,105 @@ def get_airbnb_prices(checkin, checkout):
 
                 combined_text = f"{title} {text} {detail_text}".lower()
 
-                guest_match = re.search(r"(\d+)\s+guests?", combined_text)
+                guest_count = extract_number([
+                    r"(\d+)\s+guests?",
+                    r"up to\s+(\d+)\s+people",
+                    r"sleeps\s+(\d+)"
+                ], combined_text)
 
-                guest_count = None
-                if guest_match:
-                    guest_count = int(guest_match.group(1))
+                bedroom_count = extract_number([
+                    r"(\d+)\s+bedrooms?",
+                    r"(\d+)\s+bedroom",
+                ], combined_text)
 
-                # Exclude properties for more than 6 guests
-                penalty_score = 0
-                penalty_reasons = []
-                
-                guest_penalty = 0
-                if guest_count is not None and guest_count > 6:
-                    guest_penalty = 3
-                    penalty_reasons.append("more than 6 guests")
+                bed_count = extract_number([
+                    r"(\d+)\s+beds?",
+                ], combined_text)
+
+                bathroom_count = extract_number([
+                    r"(\d+(?:\.\d+)?)\s+baths?",
+                    r"(\d+(?:\.\d+)?)\s+bathrooms?"
+                ], combined_text)
+
+                if bathroom_count is not None:
+                    bathroom_count = float(bathroom_count)
 
                 fit_score = 0
                 fit_reasons = []
+                penalty_reasons = []
 
-                if any(x in combined_text for x in ["resort", "hotel", "marenas", "sole", "trump", "newport"]):
-                    fit_score += 2
-                    fit_reasons.append("resort/hotel")
+                is_target_resort = any(x in combined_text for x in TARGET_RESORTS)
+                is_banned_type = any(x in combined_text for x in BANNED_PROPERTY_TYPES)
+                is_oceanfront = any(x in combined_text for x in OCEANFRONT_KEYWORDS)
 
-                if any(x in combined_text for x in ["2 bedroom", "2 bedrooms", "2 bed", "2 beds", "two bedroom"]):
-                    fit_score += 2
-                    fit_reasons.append("2 bedrooms")
+                # HARD FILTERS
+                if is_banned_type and not is_target_resort:
+                    continue
 
-                if any(x in combined_text for x in ["3 bathroom", "3 bathrooms", "3 bath", "3 baths"]):
-                    fit_score += 2
-                    fit_reasons.append("3 bathrooms")
+                if guest_count is not None and guest_count != 6:
+                    continue
 
-                if any(x in combined_text for x in ["6 guests", "sleeps 6", "up to 6", "6 people"]):
+                if bedroom_count is not None and bedroom_count != 2:
+                    continue
+
+                if bed_count is not None and bed_count < 3:
+                    continue
+
+                if bathroom_count is not None and bathroom_count < 3:
+                    continue
+
+                if not is_oceanfront:
+                    continue
+
+                # SCORING
+                if is_target_resort:
+                    fit_score += 5
+                    fit_reasons.append("target resort/building")
+
+                if guest_count == 6:
                     fit_score += 2
                     fit_reasons.append("6 guests")
 
-                if any(x in combined_text for x in ["kitchen", "full kitchen", "complete kitchen"]):
+                if bedroom_count == 2:
+                    fit_score += 2
+                    fit_reasons.append("2 bedrooms")
+
+                if bed_count is not None and bed_count >= 3:
+                    fit_score += 2
+                    fit_reasons.append("3+ beds")
+
+                if bathroom_count is not None and bathroom_count >= 3:
+                    fit_score += 2
+                    fit_reasons.append("3+ bathrooms")
+
+                if is_oceanfront:
+                    fit_score += 3
+                    fit_reasons.append("oceanfront/beach access")
+
+                if "kitchen" in combined_text:
                     fit_score += 1
                     fit_reasons.append("kitchen")
 
-                if any(x in combined_text for x in ["direct ocean view", "ocean view", "oceanfront", "beachfront", "beach access", "private beach"]):
-                    fit_score += 3
-                    fit_reasons.append("ocean view/access")
+                qualified_competitor = fit_score >= 8
 
-                if "aventura" in combined_text and "marenas" not in combined_text:
-                    penalty_score += 4
-                    penalty_reasons.append("possible Aventura location")
-
-                if any(x in combined_text for x in ["house", "villa", "townhouse"]):
-                    penalty_score += 3
-                    penalty_reasons.append("not condo/resort style")
-
-                if "home in" in combined_text and not any(
-                    x in combined_text for x in ["marenas", "resort", "condo", "apartment"]
-                ):
-                    penalty_score += 2
-                    penalty_reasons.append("possible private home")
-
-                fit_score = fit_score - penalty_score - guest_penalty
-
-                if fit_score >= 5:
+                if fit_score >= 10:
+                    match_quality = "Strong match"
+                elif fit_score >= 8:
                     match_quality = "Qualified match"
-                elif fit_score >= 3:
-                    match_quality = "Partial match"
                 else:
-                    match_quality = "Low match"
+                    match_quality = "Partial match"
 
-                qualified_competitor = fit_score >= 3
+                relevance_score = fit_score
+
+                if relevance_score >= 10:
+                    relevance = "High"
+                elif relevance_score >= 8:
+                    relevance = "Medium"
+                else:
+                    relevance = "Low"
+
+                direct_competitor = is_target_resort or is_oceanfront
+
                 listings.append({
                     "title": title,
                     "link": link,
@@ -274,6 +353,11 @@ def get_airbnb_prices(checkin, checkout):
                     "penalty_reasons": ", ".join(penalty_reasons),
                     "guest_count": guest_count,
                     "qualified_competitor": qualified_competitor,
+                    "match_quality": match_quality,
+                    "guest_count": guest_count,
+                    "bedroom_count": bedroom_count,
+                    "bed_count": bed_count,
+                    "bathroom_count": bathroom_count,
                     "match_quality": match_quality,
                 })
 
