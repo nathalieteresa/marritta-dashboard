@@ -269,25 +269,33 @@ def get_airbnb_prices(checkin, checkout):
                 is_banned_type = any(x in combined_text for x in BANNED_PROPERTY_TYPES)
                 is_oceanfront = any(x in combined_text for x in OCEANFRONT_KEYWORDS)
 
-                # HARD FILTERS
+                # NO eliminar aquí. Solo puntuar.
                 if is_banned_type and not is_target_resort:
-                    continue
+                    fit_score -= 4
+                    penalty_reasons.append("possible house/villa/townhouse")
 
                 if guest_count is not None and guest_count < 6:
-                    continue
+                    fit_score -= 5
+                    penalty_reasons.append("less than 6 guests")
 
-                if bedroom_count is not None and bedroom_count != 2:
-                    continue
+                if guest_count is not None and guest_count > 6:
+                    fit_score -= 1
+                    penalty_reasons.append("more than 6 guests")
+
+                if bedroom_count is not None and bedroom_count < 2:
+                    fit_score -= 5
+                    penalty_reasons.append("less than 2 bedrooms")
 
                 if bed_count is not None and bed_count < 3:
-                    continue
+                    fit_score -= 4
+                    penalty_reasons.append("less than 3 beds")
 
                 if bathroom_count is not None and bathroom_count < 3:
-                    continue
+                    fit_score -= 5
+                    penalty_reasons.append("less than 3 bathrooms")
 
-                # No eliminar si no detecta oceanfront.
-                # Solo penalizar/clasificar después.
                 if not is_oceanfront:
+                    fit_score -= 2
                     penalty_reasons.append("oceanfront not confirmed")
 
                 # SCORING
@@ -295,13 +303,13 @@ def get_airbnb_prices(checkin, checkout):
                     fit_score += 5
                     fit_reasons.append("target resort/building")
 
-                if guest_count == 6:
+                if guest_count is not None and guest_count >= 6:
                     fit_score += 2
-                    fit_reasons.append("6 guests")
+                    fit_reasons.append("6+ guests")
 
-                if bedroom_count == 2:
+                if bedroom_count is not None and bedroom_count >= 2:
                     fit_score += 2
-                    fit_reasons.append("2 bedrooms")
+                    fit_reasons.append("2+ bedrooms")
 
                 if bed_count is not None and bed_count >= 3:
                     fit_score += 2
@@ -319,11 +327,11 @@ def get_airbnb_prices(checkin, checkout):
                     fit_score += 1
                     fit_reasons.append("kitchen")
 
-                qualified_competitor = fit_score >= 5
+                qualified_competitor = fit_score >= 4
 
                 if fit_score >= 10:
                     match_quality = "Strong match"
-                elif fit_score >= 5:
+                elif fit_score >= 4:
                     match_quality = "Qualified match"
                 else:
                     match_quality = "Partial match"
@@ -332,17 +340,17 @@ def get_airbnb_prices(checkin, checkout):
 
                 if relevance_score >= 10:
                     relevance = "High"
-                elif relevance_score >= 8:
+                elif relevance_score >= 4:
                     relevance = "Medium"
                 else:
                     relevance = "Low"
 
-                direct_competitor = is_target_resort or is_oceanfront
+                direct_competitor = is_target_resort or is_oceanfront or fit_score >= 4
 
                 listings.append({
                     "title": title,
                     "link": link,
-                    "raw_text": text,
+                    "raw_text": detail_text if detail_text else text,
                     "price": price,
                     "relevance": relevance,
                     "relevance_score": relevance_score,
