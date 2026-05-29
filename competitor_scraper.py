@@ -45,9 +45,9 @@ def extract_number(patterns, text):
     for pattern in patterns:
         match = re.search(pattern, text)
         if match:
-            return int(match.group(1))
+            return int(float(match.group(1)))
     return None
-
+    
 def get_airbnb_prices(checkin, checkout):
 
     listings = []
@@ -261,9 +261,6 @@ def get_airbnb_prices(checkin, checkout):
                     r"(\d+(?:\.\d+)?)\s+bathrooms?"
                 ], combined_text)
 
-                if bathroom_count is not None:
-                    bathroom_count = float(bathroom_count)
-
                 fit_score = 0
                 fit_reasons = []
                 penalty_reasons = []
@@ -276,7 +273,7 @@ def get_airbnb_prices(checkin, checkout):
                 if is_banned_type and not is_target_resort:
                     continue
 
-                if guest_count is not None and guest_count != 6:
+                if guest_count is not None and guest_count < 6:
                     continue
 
                 if bedroom_count is not None and bedroom_count != 2:
