@@ -293,12 +293,17 @@ def get_airbnb_prices(checkin, checkout):
                 if bathroom_count is not None and bathroom_count < 3:
                     continue
 
-                if any(x in combined_text for x in ["villa", "house", "entire home", "home in", "townhouse"]):
+                if any(x in combined_text for x in ["villa", "townhouse"]):
+                    continue
+
+                if any(x in combined_text for x in ["house", "entire home", "home in"]) and not any(
+                    x in combined_text for x in ["condo", "apartment", "resort", "marenas", "trump", "sole", "solé", "ocean reserve", "sunny isles"]
+                ):
                     continue
 
                 if not any(
                     x in combined_text
-                    for x in TARGET_RESORTS
+                    for x in TARGET_RESORTS + ["sunny isles", "oceanfront", "beachfront", "ocean view", "beach access"]
                 ):
                     continue
 
