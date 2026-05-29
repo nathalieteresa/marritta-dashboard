@@ -714,8 +714,6 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
             })
 
         competitor_df = pd.DataFrame(clean_listings)
-        st.write("RAW SCRAPER RESULTS:", len(competitor_df))
-        st.dataframe(
             competitor_df[
                 [
                     "Listing",
