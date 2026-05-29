@@ -278,21 +278,24 @@ def get_airbnb_prices(checkin, checkout):
                     fit_score -= 5
                     penalty_reasons.append("less than 6 guests")
 
-                if guest_count is not None and guest_count > 6:
-                    fit_score -= 1
+                if guest_count is not None and guest_count != 6:
+                    continue
                     penalty_reasons.append("more than 6 guests")
+                
+                if bedroom_count is not None and bedroom_count != 2:
+                    continue
 
-                if bedroom_count is not None and bedroom_count < 2:
-                    fit_score -= 5
-                    penalty_reasons.append("less than 2 bedrooms")
-
-                if bed_count is not None and bed_count < 3:
-                    fit_score -= 4
-                    penalty_reasons.append("less than 3 beds")
+                if bed_count is not None and bed_count != 3:
+                    continue
 
                 if bathroom_count is not None and bathroom_count < 3:
-                    fit_score -= 5
-                    penalty_reasons.append("less than 3 bathrooms")
+                    continue
+
+                if any(x in combined_text for x in ["villa", "house", "entire home", "home in", "townhouse"]):
+                    continue
+
+                if not any(x in combined_text for x in ["sunny isles", "marenas", "trump", "sole", "solé", "ocean reserve"]):
+                    continue
 
                 if not is_oceanfront:
                     fit_score -= 2
