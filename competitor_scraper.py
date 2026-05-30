@@ -47,70 +47,58 @@ def _norm(text):
 def _first_reasonable_price(text):
     text = _norm(text or "")
 
+    # Solo acepta si el precio está explícitamente atado a la palabra "noches"
     # Busca precio total tipo "$7,738 for 10 nights"
-    m = re.search(
+    m1 = re.search(
         r"\$\s?([1-9][0-9,]*(?:\.\d{2})?)\s+for\s+\d+\s+nights?",
         text,
         re.IGNORECASE
     )
-    if m:
-        return round(float(m.group(1).replace(",", "")))
+    if m1:
+        return round(float(m1.group(1).replace(",", "")))
 
-    # Busca precio total tipo "10 nights x $773.72 $7,737.18"
-    m = re.search(
-        r"\d+\s+nights?\s*x\s*\$\s?[0-9,]+(?:\.\d{2})?\s+\$\s?([1-9][0-9,]*(?:\.\d{2})?)",
+    # Busca precio desglosado tipo "10 nights x $773.72 = $7,737.18"
+    m2 = re.search(
+        r"\d+\s+nights?\s*x\s*(?:.*?)\$\s?([1-9][0-9,]*(?:\.\d{2})?)",
         text,
         re.IGNORECASE
     )
-    if m:
-        return round(float(m.group(1).replace(",", "")))
+    if m2:
+        return round(float(m2.group(1).replace(",", "")))
 
-    values = []
-    for m in PRICE_RE.finditer(text):
-        val = float(m.group(1).replace(",", ""))
-        if 100 <= val <= 50000:
-            values.append(val)
-
-    if not values:
-        return None
-
-    return round(max(values))
+    # ELIMINAMOS el bloque que buscaba números sueltos (eso causaba el error de los $120)
+    
+    # Si no encuentra un precio asociado a "noches", devuelve None.
+    # Es preferible descartar el listado a registrar un precio falso de limpieza.
+    return None
 
 def _extract_booking_panel_price(page):
-
+    # Selectores específicos del panel de reserva o el botón flotante en móvil
     selectors = [
-        "span.p157orwa",
+        "[data-section-id='BOOK_IT_SIDEBAR']", # Busca dentro de la caja lateral completa
+        "[data-testid='price-item-total']",    # El total desglosado
         "[data-testid='book-it-default-price']",
-        "[data-testid='price-availability-row']",
+        "div[data-testid='book-it-default']"
     ]
 
     for selector in selectors:
-
         try:
-
             elements = page.locator(selector)
-
-            count = elements.count()
-
-            for i in range(count):
-
-                text = elements.nth(i).inner_text()
-
-                m = re.search(
-                    r"\$([0-9,]+(?:\.\d{2})?)",
-                    text
-                )
-
+            if elements.count() > 0:
+                # Leemos el texto de ese cuadro en específico
+                text = elements.first.inner_text()
+                
+                # Buscamos el total explícito primero (Ej: "$1,250 Total")
+                total_match = re.search(r"Total.*?\$\s?([0-9,]+(?:\.\d{2})?)", text, re.IGNORECASE)
+                if total_match:
+                    return round(float(total_match.group(1).replace(",", "")))
+                
+                # Si no dice "Total", agarramos el primer precio grande que aparezca en la caja
+                m = re.search(r"\$\s?([0-9,]+(?:\.\d{2})?)", text)
                 if m:
-
-                    return round(
-                        float(
-                            m.group(1).replace(",", "")
-                        )
-                    )
-
+                    return round(float(m.group(1).replace(",", "")))
         except:
-            pass
+            continue
 
     return None
 
