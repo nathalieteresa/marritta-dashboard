@@ -266,7 +266,10 @@ def get_airbnb_prices(checkin, checkout):
 
                 combined_text = f"{title} {text} {detail_text}".lower()
 
-                guest_count, bedroom_count, bed_count, bathroom_count, specs_line = extract_airbnb_specs(detail_text)
+                guest_count, bedroom_count, bed_count, bathroom_count, specs_line = extract_airbnb_specs(text)
+
+                if guest_count is None or bedroom_count is None or bathroom_count is None:
+                    guest_count, bedroom_count, bed_count, bathroom_count, specs_line = extract_airbnb_specs(detail_text)
 
                 # Fallback por si Airbnb cambia el formato o no aparece la línea oficial
                 if guest_count is None:
@@ -295,8 +298,13 @@ def get_airbnb_prices(checkin, checkout):
                 if "hosted by ritta" in combined_text:
                     continue
 
-                # 2. Exclude obvious houses / villas / townhouses
-                if any(x in combined_text for x in ["villa", "townhouse", "entire home", "home in", "house"]):
+                # 2. Exclude obvious non-comparable properties
+                if any(x in combined_text for x in ["villa", "townhouse"]):
+                    continue
+
+                if "house" in combined_text and not any(
+                    x in combined_text for x in ["condo", "apartment", "resort", "marenas", "trump", "sole", "solé", "ocean reserve", "sunny isles"]
+                ):
                     continue
 
                 # 3. Must be max 6 guests
@@ -308,10 +316,10 @@ def get_airbnb_prices(checkin, checkout):
                     continue
 
                 # 5. Must have at least 3 bathrooms
-                if bathroom_count is None and bathroom_count < 3:
+                if bathroom_count is None or bathroom_count < 3:
                     continue
 
-                # 6. Must be in / near Sunny Isles or in one of your target resort buildings
+                # 6. Must be in/near Sunny Isles or target resort
                 location_or_resort_match = any(
                     x in combined_text
                     for x in TARGET_RESORTS + [
@@ -333,7 +341,7 @@ def get_airbnb_prices(checkin, checkout):
                 if not location_or_resort_match:
                     continue
 
-                # 7. Should be ocean/beach related, but do not eliminate if missing
+                # 7. Ocean/beach signal preferred, not mandatory
                 if not is_oceanfront:
                     penalty_reasons.append("oceanfront/beach access not confirmed")
                 
@@ -397,9 +405,7 @@ def get_airbnb_prices(checkin, checkout):
                     "fit_score": fit_score,
                     "fit_reasons": ", ".join(fit_reasons),
                     "penalty_reasons": ", ".join(penalty_reasons),
-                    "guest_count": guest_count,
                     "qualified_competitor": qualified_competitor,
-                    "match_quality": match_quality,
                     "guest_count": guest_count,
                     "bedroom_count": bedroom_count,
                     "bed_count": bed_count,
