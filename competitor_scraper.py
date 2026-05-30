@@ -47,8 +47,7 @@ def _norm(text):
 def _first_reasonable_price(text):
     text = _norm(text or "")
 
-    # Solo acepta si el precio está explícitamente atado a la palabra "noches"
-    # Busca precio total tipo "$7,738 for 10 nights"
+    # 1. Intento A: Busca precio atado a "noches" (Ej: "$7,738 for 10 nights")
     m1 = re.search(
         r"\$\s?([1-9][0-9,]*(?:\.\d{2})?)\s+for\s+\d+\s+nights?",
         text,
@@ -57,7 +56,7 @@ def _first_reasonable_price(text):
     if m1:
         return round(float(m1.group(1).replace(",", "")))
 
-    # Busca precio desglosado tipo "10 nights x $773.72 = $7,737.18"
+    # 2. Intento B: Busca precio desglosado (Ej: "10 nights x $773 = $7,737")
     m2 = re.search(
         r"\d+\s+nights?\s*x\s*(?:.*?)\$\s?([1-9][0-9,]*(?:\.\d{2})?)",
         text,
@@ -66,10 +65,17 @@ def _first_reasonable_price(text):
     if m2:
         return round(float(m2.group(1).replace(",", "")))
 
-    # ELIMINAMOS el bloque que buscaba números sueltos (eso causaba el error de los $120)
-    
-    # Si no encuentra un precio asociado a "noches", devuelve None.
-    # Es preferible descartar el listado a registrar un precio falso de limpieza.
+    # 3. PLAN C (El salvavidas): Extraer el precio total por fuerza bruta.
+    # Recoge todos los precios mayores a $400 y devuelve el más alto (que siempre es el total).
+    values = []
+    for m in PRICE_RE.finditer(text):
+        val = float(m.group(1).replace(",", ""))
+        if 400 <= val <= 50000:
+            values.append(val)
+
+    if values:
+        return round(max(values))
+
     return None
 
 def _extract_booking_panel_price(page):
