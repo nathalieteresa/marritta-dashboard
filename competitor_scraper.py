@@ -7,6 +7,7 @@ from urllib.parse import urlsplit, urlunsplit, quote
 
 # Host exclusion
 EXCLUDED_HOST_KEYWORDS = ["ritta", "rita", "marritta", "maritta"]
+EXCLUDED_ROOM_IDS = set()
 
 # Property type filter intentionally disabled for now.
 # We rely on: Sunny Isles Airbnb search + 6 guests + 2 bedrooms + 3 baths + host exclusion.
@@ -276,10 +277,9 @@ def _qualified(specs, combined_text, title, url, price):
     if not price or price <= 0:
         return False, "Price not found", False
 
-    return True, "Core match: 6 guests · 2 bedrooms · 3 baths; bed count allowed to vary", False
+    return True, "Core match: 6 guests · 2 bedrooms · 2.5 or 3 baths; bed count allowed to vary", False
 
-
-def get_airbnb_prices(checkin, checkout, max_detail_pages=60, debug=True, max_seconds=180):
+def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_seconds=120):
     listings = []
     debug_rows = []
     seen = set()
@@ -423,7 +423,7 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=60, debug=True, max_se
                     "relevance_score": 15,
                     "direct_competitor": True,
                     "fit_score": 15,
-                    "fit_reasons": "Matches 6 guests · 2 bedrooms · 3 baths; bed count allowed to vary; Sunny Isles search; Ritta/Marritta excluded",
+                    "fit_reasons": "Matches 6 guests · 2 bedrooms · 2.5 or 3 baths; bed count allowed to vary; Sunny Isles search; Ritta/Marritta excluded",
                     "penalty_reasons": "",
                     "qualified_competitor": True,
                     "guest_count": specs["guest_count"],
