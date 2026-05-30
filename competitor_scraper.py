@@ -203,7 +203,7 @@ def _qualified(specs, full_text):
     return True, "Exact match"
 
 
-def get_airbnb_prices(checkin, checkout, max_detail_pages=60, debug=True):
+def get_airbnb_prices(checkin, checkout, max_detail_pages=12, debug=True):
     listings = []
     debug_rows = []
     seen = set()
@@ -239,16 +239,16 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=60, debug=True):
         for idx, url in enumerate(_build_search_urls(checkin, checkout), start=1):
             page = context.new_page()
             try:
-                page.goto(url, wait_until="networkidle", timeout=45000)
+                page.goto(url, wait_until="domcontentloaded", timeout=18000)
             except Exception:
                 try:
-                    page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                    page.goto(url, wait_until="domcontentloaded", timeout=18000)
                 except Exception:
                     pass
-            page.wait_for_timeout(3500)
-            for _ in range(6):
-                page.mouse.wheel(0, 4500)
-                page.wait_for_timeout(1100)
+            page.wait_for_timeout(1200)
+            for _ in range(2):
+                page.mouse.wheel(0, 3500)
+                page.wait_for_timeout(500)
 
             if debug:
                 try:
@@ -272,17 +272,17 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=60, debug=True):
             body = ""
             try:
                 try:
-                    detail_page.goto(link, wait_until="networkidle", timeout=45000)
+                    detail_page.goto(link, wait_until="domcontentloaded", timeout=15000)
                 except Exception:
-                    detail_page.goto(link, wait_until="domcontentloaded", timeout=45000)
-                detail_page.wait_for_timeout(3500)
+                    detail_page.goto(link, wait_until="domcontentloaded", timeout=15000)
+                detail_page.wait_for_timeout(1200)
 
                 specs = _extract_airbnb_specs_from_detail_page(detail_page)
                 title = _extract_title(detail_page)
-                body = detail_page.locator("body").inner_text(timeout=8000)
+                body = detail_page.locator("body").inner_text(timeout=4000)
                 price = _first_reasonable_price(body)
 
-                if debug and n <= 20:
+                if debug and n <= 5:
                     (debug_dir / f"detail_{n}.html").write_text(detail_page.content(), encoding="utf-8")
                     (debug_dir / f"detail_{n}.txt").write_text(body, encoding="utf-8")
 
@@ -328,6 +328,8 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=60, debug=True):
                     "match_quality": "Exact Airbnb specs match",
                     "specs_line": specs["specs_line"],
                 })
+                if len(listings) >= 8:
+                    break
 
         browser.close()
 
