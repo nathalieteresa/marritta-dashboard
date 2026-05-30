@@ -14,15 +14,7 @@ EXCLUDED_HOSTS = [
 
 # Final property-type exclusion list requested by Nathalie.
 # Removed from exclusion: "entire home", "home in", "private room", "shared room", "hotel room".
-BANNED_PROPERTY_TYPES = [
-    "house",
-    "villa",
-    "townhouse",
-    "boat",
-    "camper",
-    "rv",
-    "tiny home",
-]
+BANNED_PROPERTY_TYPES = []
 
 # Helpful signals only. These are NOT hard filters because Airbnb sometimes hides location/property text.
 LOCATION_SIGNALS = [
@@ -220,8 +212,9 @@ def _qualified(specs, full_text):
     if any(host in text for host in EXCLUDED_HOSTS):
         return False, "Excluded host: Ritta/Rita/Marritta"
 
-    if any(bad in text for bad in BANNED_PROPERTY_TYPES):
-        return False, "Excluded property type"
+    # Property type filter temporarily disabled.
+    # We are relying on Airbnb search location + core specs:
+    # 6 guests, 2 bedrooms, 3 baths.
 
     if not specs:
         return False, "Specs not found"
