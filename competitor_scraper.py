@@ -1,432 +1,255 @@
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import re
+from urllib.parse import urlsplit, urlunsplit
 
+# Buildings/resorts that compete directly with Marenas in or near Sunny Isles.
 TARGET_RESORTS = [
-    "sole miami",
-    "solé miami",
-    "sole",
-    "solé",
-    "trump international",
-    "trump",
-    "marco polo",
-    "ramada",
-    "doubletree ocean point",
-    "doubletree",
-    "the sunny curio",
-    "curio",
-    "ocean reserve",
-    "marenas",
-    "private condos at trump",
-    "private condos at marenas",
+    "marenas", "marenas resort", "sole miami", "solé miami", "sole", "solé",
+    "trump international", "trump", "ocean reserve", "doubletree ocean point",
+    "doubletree", "marco polo", "ramada", "newport", "hyde"
+]
+
+LOCATION_KEYWORDS = [
+    "sunny isles", "sunny isles beach", "collins ave", "collins avenue",
+    "beach resort", "ocean view", "beachfront", "oceanfront", "beach access"
 ]
 
 BANNED_PROPERTY_TYPES = [
-    "entire home",
-    "home in",
-    "house",
-    "villa",
-    "townhouse",
+    "entire home", "home in", "house", "villa", "townhouse", "private room", "shared room"
 ]
 
-OCEANFRONT_KEYWORDS = [
-    "oceanfront",
-    "ocean front",
-    "beachfront",
-    "beach front",
-    "direct ocean view",
-    "ocean view",
-    "beach access",
-    "private beach",
-    "waterfront",
-]
+EXCLUDED_HOSTS = ["hosted by ritta", "hosted by rita", "hosted by marritta"]
+
+OFFICIAL_SPEC_PATTERN = re.compile(
+    r"(?P<guests>\d+)\s+guests?\s*[·•]\s*"
+    r"(?P<bedrooms>\d+)\s+bedrooms?\s*[·•]\s*"
+    r"(?P<beds>\d+)\s+beds?\s*[·•]\s*"
+    r"(?P<baths>\d+(?:\.\d+)?)\s+baths?",
+    re.IGNORECASE,
+)
+
+PRICE_PATTERN = re.compile(r"\$[\d,]+")
 
 
-def extract_number(patterns, text):
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            return int(float(match.group(1)))
-    return None
+def _clean_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
-def extract_airbnb_specs(detail_text):
-    specs_line = ""
 
-    for line in detail_text.split("\n"):
-        line_clean = line.strip().lower()
+def _extract_price(card_text: str) -> int | None:
+    prices = []
+    for match in PRICE_PATTERN.findall(card_text):
+        value = int(match.replace("$", "").replace(",", ""))
+        if value >= 100:
+            prices.append(value)
+    return prices[-1] if prices else None
 
-        if (
-            "guest" in line_clean
-            and "bedroom" in line_clean
-            and "bed" in line_clean
-            and "bath" in line_clean
-        ):
-            specs_line = line_clean
-            break
 
-    if not specs_line:
-        return None, None, None, None, ""
+def _extract_official_specs(text: str):
+    """Extract the exact Airbnb headline specs line, e.g. '6 guests · 2 bedrooms · 2 beds · 3 baths'."""
+    if not text:
+        return None
 
-    guest_count = extract_number([r"(\d+)\s+guests?"], specs_line)
-    bedroom_count = extract_number([r"(\d+)\s+bedrooms?"], specs_line)
-    bed_count = extract_number([r"(\d+)\s+beds?"], specs_line)
-    bathroom_count = extract_number([r"(\d+(?:\.\d+)?)\s+baths?"], specs_line)
+    normalized = re.sub(r"\s+", " ", text.replace("•", "·")).strip()
+    match = OFFICIAL_SPEC_PATTERN.search(normalized)
+    if not match:
+        return None
 
-    return guest_count, bedroom_count, bed_count, bathroom_count, specs_line
-    
-def get_airbnb_prices(checkin, checkout):
+    guests = int(match.group("guests"))
+    bedrooms = int(match.group("bedrooms"))
+    beds = int(match.group("beds"))
+    baths = float(match.group("baths"))
+    if baths.is_integer():
+        baths = int(baths)
 
-    listings = []
+    return {
+        "guest_count": guests,
+        "bedroom_count": bedrooms,
+        "bed_count": beds,
+        "bathroom_count": baths,
+        "specs_line": match.group(0),
+    }
 
+
+def _is_exact_marenas_competitor(combined_text: str, specs: dict | None) -> tuple[bool, list[str], list[str]]:
+    reasons = []
+    penalties = []
+    text = combined_text.lower()
+
+    if any(host in text for host in EXCLUDED_HOSTS):
+        return False, reasons, ["excluded host: Ritta/Rita/Marritta"]
+
+    if any(bad in text for bad in BANNED_PROPERTY_TYPES):
+        return False, reasons, ["excluded property type"]
+
+    # User's hard requirement: exact Airbnb specs below title/photo.
+    if not specs:
+        return False, reasons, ["official Airbnb specs line not found"]
+
+    if not (
+        specs["guest_count"] == 6
+        and specs["bedroom_count"] == 2
+        and specs["bed_count"] == 2
+        and float(specs["bathroom_count"]) == 3.0
+    ):
+        return False, reasons, ["not exact 6 guests · 2 bedrooms · 2 beds · 3 baths"]
+
+    reasons.append("exact 6 guests · 2 bedrooms · 2 beds · 3 baths")
+
+    location_match = any(k in text for k in LOCATION_KEYWORDS)
+    resort_match = any(k in text for k in TARGET_RESORTS)
+
+    if not (location_match or resort_match):
+        return False, reasons, ["not clearly in/near Sunny Isles or a target resort"]
+
+    if resort_match:
+        reasons.append("target Sunny Isles resort/building")
+    elif location_match:
+        reasons.append("Sunny Isles / beach location signal")
+
+    return True, reasons, penalties
+
+
+def get_airbnb_prices(checkin, checkout, max_detail_pages: int = 18):
+    """
+    Fast competitor scan:
+    1. Scrape search result cards for links/prices.
+    2. Open detail pages only for the most likely candidates, not every card.
+    3. Keep only exact matches: 6 guests · 2 bedrooms · 2 beds · 3 baths.
+    4. Exclude listings hosted by Ritta/Rita/Marritta.
+    """
     url = (
-    "https://www.airbnb.com/s/Sunny-Isles-Beach--Florida--United-States/homes"
-    f"?checkin={checkin}"
-    f"&checkout={checkout}"
-    "&adults=6"
-    "&min_bedrooms=2"
-    "&min_bathrooms=3"
-    "&query=Sunny%20Isles%20Beach%20resort%20hotel%20ocean%20view%20beach%20access%20kitchen"
+        "https://www.airbnb.com/s/Sunny-Isles-Beach--Florida--United-States/homes"
+        f"?checkin={checkin}"
+        f"&checkout={checkout}"
+        "&adults=6"
+        "&min_bedrooms=2"
+        "&min_bathrooms=3"
+        "&query=Sunny%20Isles%20Beach%20Marenas%20resort%20ocean%20view%20beachfront%20Collins"
     )
 
-    allowed_keywords = [
-        "marenas",
-        "sunny isles",
-        "beach resort",
-        "ocean view",
-        "intracoastal",
-        "collins",
-        "solé",
-        "sole",
-        "hyde",
-        "trump",
-        "ocean reserve"
-    ]
+    listings = []
+    candidates = []
+    seen_links = set()
 
     with sync_playwright() as p:
-
         browser = p.chromium.launch(
             executable_path="/usr/bin/chromium",
             headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu"
-            ]
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
         )
-        page = browser.new_page()
-        page.goto(url)
-        page.wait_for_timeout(7000)
-        for _ in range(6):
-            page.mouse.wheel(0, 5000)
-            page.wait_for_timeout(2500)
+        context = browser.new_context(locale="en-US")
+
+        # Speed: do not download heavy assets. Text is enough for specs/host/price.
+        context.route(
+            "**/*",
+            lambda route: route.abort()
+            if route.request.resource_type in ["image", "media", "font", "stylesheet"]
+            else route.continue_(),
+        )
+
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(2500)
+
+        # Less scrolling = faster. Airbnb usually loads enough cards after 3 scrolls.
+        for _ in range(3):
+            page.mouse.wheel(0, 4500)
+            page.wait_for_timeout(900)
 
         cards = page.locator("div[itemprop='itemListElement']")
         count = cards.count()
 
         for i in range(count):
-
             try:
                 card = cards.nth(i)
-                text = card.inner_text()
+                text = card.inner_text(timeout=2500)
                 text_lower = text.lower()
-
-                #No eliminar por keywords aquí. Mejor analizar todos y clasificarlos después.
-
-                link = None
-                hrefs = card.locator("a").evaluate_all(
-                    "(els) => els.map(a => a.href)"
-                )
-
-                for href in hrefs:
-                    if "/rooms/" in href:
-                        link = href
-                        break
-
-                lines = [
-                    line.strip()
-                    for line in text.split("\n")
-                    if line.strip()
-                ]
-
-                title = lines[0] if len(lines) > 0 else "Airbnb Listing"
-
-                dollar_matches = re.findall(
-                    r"\$[\d,]+",
-                    text
-                )
-
-                price = None
-
-                if len(dollar_matches) > 0:
-
-                    clean_prices = []
-
-                    for p in dollar_matches:
-                        number = int(
-                            p.replace("$", "").replace(",", "")
-                        )
-
-                        if number >= 100:
-                            clean_prices.append(number)
-
-                    if len(clean_prices) > 0:
-                        price = clean_prices[-1]
-
+                price = _extract_price(text)
                 if price is None:
                     continue
 
-                relevance_score = 0
-
-                if "marenas" in text_lower:
-                    relevance_score += 6
-
-                if "sunny isles" in text_lower:
-                    relevance_score += 3
-
-                if "collins" in text_lower:
-                    relevance_score += 2
-
-                if "ocean" in text_lower or "beach" in text_lower:
-                    relevance_score += 2
-
-                if "condo" in text_lower or "apartment" in text_lower:
-                    relevance_score += 2
-
-                if "resort" in text_lower:
-                    relevance_score += 2
-
-                if "private room" in text_lower or "shared room" in text_lower:
-                    relevance_score -= 5
-
-                if relevance_score >= 8:
-                    relevance = "High"
-
-                elif relevance_score >= 5:
-                    relevance = "Medium"
-
-                else:
-                    relevance = "Low"
-
-                direct_competitor = False
-
-                direct_keywords = [
-                    "marenas",
-                    "marenas resort",
-                    "resort",
-                    "hotel",
-                    "beachfront",
-                    "beach front",
-                    "oceanfront",
-                    "ocean front",
-                    "direct ocean view",
-                    "ocean view",
-                    "beach access",
-                    "private beach",
-                    "sunny isles",
-                    "sole",
-                    "trump",
-                    "newport",
-                    "ocean reserve"
-                ]
-
-                for keyword in direct_keywords:
-
-                    if keyword.lower() in text.lower():
-                        direct_competitor = True
-                        break
-
-                detail_text = ""
-
-                if link:
-
-                    try:
-
-                        detail_page = browser.new_page()
-                        detail_page.goto(link)
-                        detail_page.wait_for_timeout(4000)
-
-                        detail_text = detail_page.locator("body").inner_text().lower()
-
-                        detail_page.close()
-
-                    except:
-                        detail_text = ""
-
-                combined_text = (text + " " + detail_text).lower()
-
-                # Excluir listings de tu mamá
-                if "hosted by ritta" in combined_text:
+                hrefs = card.locator("a").evaluate_all("els => els.map(a => a.href)")
+                link = next((_clean_url(href) for href in hrefs if "/rooms/" in href), None)
+                if not link or link in seen_links:
                     continue
+                seen_links.add(link)
 
-                for keyword in direct_keywords:
+                # Prioritize likely direct competitors before opening detail pages.
+                priority = 0
+                if any(k in text_lower for k in TARGET_RESORTS):
+                    priority += 10
+                if any(k in text_lower for k in LOCATION_KEYWORDS):
+                    priority += 5
+                if "sunny isles" in text_lower or "collins" in text_lower:
+                    priority += 3
+                if any(bad in text_lower for bad in BANNED_PROPERTY_TYPES):
+                    priority -= 20
 
-                    if keyword.lower() in combined_text:
-                        direct_competitor = True
-                        break
+                title_lines = [line.strip() for line in text.split("\n") if line.strip()]
+                title = title_lines[0] if title_lines else "Airbnb Listing"
 
-
-                combined_text = f"{title} {text} {detail_text}".lower()
-
-                guest_count, bedroom_count, bed_count, bathroom_count, specs_line = extract_airbnb_specs(text)
-
-                if guest_count is None or bedroom_count is None or bathroom_count is None:
-                    guest_count, bedroom_count, bed_count, bathroom_count, specs_line = extract_airbnb_specs(detail_text)
-
-                # Fallback por si Airbnb cambia el formato o no aparece la línea oficial
-                if guest_count is None:
-                    guest_count = extract_number([r"(\d+)\s+guests?", r"up to\s+(\d+)\s+people", r"sleeps\s+(\d+)"], combined_text)
-
-                if bedroom_count is None:
-                    bedroom_count = extract_number([r"(\d+)\s+bedrooms?", r"(\d+)\s+bedroom"], combined_text)
-
-                if bed_count is None:
-                    bed_count = extract_number([r"(\d+)\s+beds?"], combined_text)
-
-                if bathroom_count is None:
-                    bathroom_count = extract_number([r"(\d+(?:\.\d+)?)\s+baths?", r"(\d+(?:\.\d+)?)\s+bathrooms?"], combined_text)
-
-                fit_score = 0
-                fit_reasons = []
-                penalty_reasons = []
-
-                is_target_resort = any(x in combined_text for x in TARGET_RESORTS)
-                is_banned_type = any(x in combined_text for x in BANNED_PROPERTY_TYPES)
-                is_oceanfront = any(x in combined_text for x in OCEANFRONT_KEYWORDS)
-
-                # HARD FILTERS — Marenas-like competitors only
-
-                # 1. Exclude your mom's listings
-                if "hosted by ritta" in combined_text:
-                    continue
-
-                # 2. Exclude obvious non-comparable properties
-                if any(x in combined_text for x in ["villa", "townhouse"]):
-                    continue
-
-                if "house" in combined_text and not any(
-                    x in combined_text for x in ["condo", "apartment", "resort", "marenas", "trump", "sole", "solé", "ocean reserve", "sunny isles"]
-                ):
-                    continue
-
-                # 3. Must be max 6 guests
-                if guest_count is None or guest_count > 6:
-                    continue
-
-                # 4. Must have exactly 2 bedrooms
-                if bedroom_count is None or bedroom_count != 2:
-                    continue
-
-                # 5. Must have at least 3 bathrooms
-                if bathroom_count is None or bathroom_count < 3:
-                    continue
-
-                # 6. Must be in/near Sunny Isles or target resort
-                location_or_resort_match = any(
-                    x in combined_text
-                    for x in TARGET_RESORTS + [
-                        "sunny isles",
-                        "collins ave",
-                        "collins avenue",
-                        "marenas",
-                        "trump",
-                        "sole",
-                        "solé",
-                        "ocean reserve",
-                        "newport",
-                        "doubletree",
-                        "marco polo",
-                        "ramada"
-                    ]
-                )
-
-                if not location_or_resort_match:
-                    continue
-
-                # 7. Ocean/beach signal preferred, not mandatory
-                if not is_oceanfront:
-                    penalty_reasons.append("oceanfront/beach access not confirmed")
-                
-                # SCORING
-                if is_target_resort:
-                    fit_score += 5
-                    fit_reasons.append("target resort/building")
-
-                if guest_count is not None and guest_count <= 6:
-                    fit_score += 2
-                    fit_reasons.append("max 6 guests")
-
-                if bedroom_count is not None and bedroom_count == 2:
-                    fit_score += 2
-                    fit_reasons.append("exactly 2 bedrooms")
-
-                if bed_count is not None and bed_count >= 3:
-                    fit_score += 2
-                    fit_reasons.append("3+ beds")
-
-                if bathroom_count is not None and bathroom_count >= 3:
-                    fit_score += 2
-                    fit_reasons.append("3+ bathrooms")
-
-                if is_oceanfront:
-                    fit_score += 3
-                    fit_reasons.append("oceanfront/beach access")
-
-                if "kitchen" in combined_text:
-                    fit_score += 1
-                    fit_reasons.append("kitchen")
-
-                qualified_competitor = fit_score >= 4
-
-                if fit_score >= 10:
-                    match_quality = "Strong match"
-                elif fit_score >= 4:
-                    match_quality = "Qualified match"
-                else:
-                    match_quality = "Partial match"
-
-                relevance_score = fit_score
-
-                if relevance_score >= 10:
-                    relevance = "High"
-                elif relevance_score >= 4:
-                    relevance = "Medium"
-                else:
-                    relevance = "Low"
-
-                direct_competitor = is_target_resort or is_oceanfront or fit_score >= 4
-
-                listings.append({
+                candidates.append({
                     "title": title,
                     "link": link,
                     "raw_text": text,
                     "price": price,
-                    "relevance": relevance,
-                    "relevance_score": relevance_score,
-                    "direct_competitor": direct_competitor,
-                    "fit_score": fit_score,
-                    "fit_reasons": ", ".join(fit_reasons),
-                    "penalty_reasons": ", ".join(penalty_reasons),
-                    "qualified_competitor": qualified_competitor,
-                    "guest_count": guest_count,
-                    "bedroom_count": bedroom_count,
-                    "bed_count": bed_count,
-                    "bathroom_count": bathroom_count,
-                    "match_quality": match_quality,
-                    "specs_line": specs_line,
+                    "priority": priority,
                 })
+            except Exception:
+                continue
 
-            except:
-                pass
+        candidates = sorted(candidates, key=lambda x: x["priority"], reverse=True)[:max_detail_pages]
+
+        for candidate in candidates:
+            detail_text = ""
+            try:
+                detail_page = context.new_page()
+                detail_page.goto(candidate["link"], wait_until="domcontentloaded", timeout=25000)
+                detail_page.wait_for_timeout(1600)
+                detail_text = detail_page.locator("body").inner_text(timeout=5000)
+                detail_page.close()
+            except (PlaywrightTimeoutError, Exception):
+                try:
+                    detail_page.close()
+                except Exception:
+                    pass
+
+            combined_text = f"{candidate['title']}\n{candidate['raw_text']}\n{detail_text}"
+            specs = _extract_official_specs(detail_text) or _extract_official_specs(candidate["raw_text"])
+
+            is_qualified, reasons, penalties = _is_exact_marenas_competitor(combined_text, specs)
+            if not is_qualified:
+                continue
+
+            fit_score = 12
+            if any(k in combined_text.lower() for k in TARGET_RESORTS):
+                fit_score += 3
+            if any(k in combined_text.lower() for k in ["oceanfront", "beachfront", "ocean view", "beach access", "private beach"]):
+                fit_score += 2
+
+            listings.append({
+                "title": candidate["title"],
+                "link": candidate["link"],
+                "raw_text": candidate["raw_text"],
+                "price": candidate["price"],
+                "relevance": "High",
+                "relevance_score": fit_score,
+                "direct_competitor": True,
+                "fit_score": fit_score,
+                "fit_reasons": ", ".join(reasons),
+                "penalty_reasons": ", ".join(penalties),
+                "qualified_competitor": True,
+                "guest_count": specs["guest_count"],
+                "bedroom_count": specs["bedroom_count"],
+                "bed_count": specs["bed_count"],
+                "bathroom_count": specs["bathroom_count"],
+                "match_quality": "Exact Marenas-style match",
+                "specs_line": specs["specs_line"],
+            })
 
         browser.close()
-        print("TOTAL CARDS SCRAPED:", count)
-        print("TOTAL LISTINGS AFTER FILTERS:", len(listings))
 
-        for x in listings[:10]:
-            print(
-                x["title"],
-                "| guests:", x.get("guest_count"),
-                "| fit:", x.get("fit_score"),
-                "| direct:", x.get("direct_competitor")
-            )
-
-        return listings
+    return listings
