@@ -289,60 +289,66 @@ def get_airbnb_prices(checkin, checkout):
                 is_banned_type = any(x in combined_text for x in BANNED_PROPERTY_TYPES)
                 is_oceanfront = any(x in combined_text for x in OCEANFRONT_KEYWORDS)
 
-                # NO eliminar aquí. Solo puntuar.
-                if is_banned_type and not is_target_resort:
-                    fit_score -= 4
-                    penalty_reasons.append("possible house/villa/townhouse")
+                # HARD FILTERS — Marenas-like competitors only
 
-                if guest_count is not None and guest_count < 6:
-                    fit_score -= 5
-                    penalty_reasons.append("less than 6 guests")
-
-                if guest_count is not None and guest_count > 8:
-                    continue
-                
-                if bedroom_count is not None and bedroom_count < 2:
+                # 1. Exclude your mom's listings
+                if "hosted by ritta" in combined_text:
                     continue
 
-                if bedroom_count is not None and bedroom_count > 3:
+                # 2. Exclude obvious houses / villas / townhouses
+                if any(x in combined_text for x in ["villa", "townhouse", "entire home", "home in", "house"]):
                     continue
 
-                if bed_count is not None and bed_count < 3:
-                    continue
-                
-                if bathroom_count is not None and bathroom_count < 3:
+                # 3. Must be max 6 guests
+                if guest_count is None or guest_count > 6:
                     continue
 
-                if any(x in combined_text for x in ["villa", "townhouse"]):
+                # 4. Must have exactly 2 bedrooms
+                if bedroom_count is None or bedroom_count != 2:
                     continue
 
-                if any(x in combined_text for x in ["house", "entire home", "home in"]) and not any(
-                    x in combined_text for x in ["condo", "apartment", "resort", "marenas", "trump", "sole", "solé", "ocean reserve", "sunny isles"]
-                ):
+                # 5. Must have at least 3 bathrooms
+                if bathroom_count is None and bathroom_count < 3:
                     continue
 
-                if not any(
+                # 6. Must be in / near Sunny Isles or in one of your target resort buildings
+                location_or_resort_match = any(
                     x in combined_text
-                    for x in TARGET_RESORTS + ["sunny isles", "oceanfront", "beachfront", "ocean view", "beach access"]
-                ):
+                    for x in TARGET_RESORTS + [
+                        "sunny isles",
+                        "collins ave",
+                        "collins avenue",
+                        "marenas",
+                        "trump",
+                        "sole",
+                        "solé",
+                        "ocean reserve",
+                        "newport",
+                        "doubletree",
+                        "marco polo",
+                        "ramada"
+                    ]
+                )
+
+                if not location_or_resort_match:
                     continue
 
+                # 7. Should be ocean/beach related, but do not eliminate if missing
                 if not is_oceanfront:
-                    fit_score -= 2
-                    penalty_reasons.append("oceanfront not confirmed")
-
+                    penalty_reasons.append("oceanfront/beach access not confirmed")
+                
                 # SCORING
                 if is_target_resort:
                     fit_score += 5
                     fit_reasons.append("target resort/building")
 
-                if guest_count is not None and guest_count >= 6:
+                if guest_count is not None and guest_count <= 6:
                     fit_score += 2
-                    fit_reasons.append("6+ guests")
+                    fit_reasons.append("max 6 guests")
 
-                if bedroom_count is not None and bedroom_count >= 2:
+                if bedroom_count is not None and bedroom_count == 2:
                     fit_score += 2
-                    fit_reasons.append("2+ bedrooms")
+                    fit_reasons.append("exactly 2 bedrooms")
 
                 if bed_count is not None and bed_count >= 3:
                     fit_score += 2
