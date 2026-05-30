@@ -243,31 +243,29 @@ def _extract_full_detail_text(page):
 def _build_search_urls(checkin, checkout):
     base = "https://www.airbnb.com/s/Sunny-Isles-Beach--Florida--United-States/homes"
     common = (
-        f"checkin={checkin}&checkout={checkout}&adults=6&min_bedrooms=2&min_bathrooms=2"
+        f"checkin={checkin}&checkout={checkout}&adults=6"
+        "&min_bedrooms=2"
+        "&min_bathrooms=2"
         "&room_types%5B%5D=Entire%20home%2Fapt"
     )
 
     queries = [
-        "Sunny Isles Beach 6 guests 2 bedrooms 3 baths",
-        "Sunny Isles Beach 6 guests 2 bedrooms 2.5 baths",
-        "Marenas Sunny Isles 6 guests 2 bedrooms",
-        "Trump Sunny Isles 6 guests 2 bedrooms",
-        "Ocean Reserve Sunny Isles 6 guests 2 bedrooms",
-        "Solé Sunny Isles 6 guests 2 bedrooms",
-        "Collins Avenue Sunny Isles 6 guests 2 bedrooms",
-        "Sunny Isles oceanfront condo 6 guests 2 bedrooms",
+        "Sunny Isles Beach",
+        "Sunny Isles Beach condo",
+        "Sunny Isles Beach ocean view",
+        "Sunny Isles Beach beachfront",
+        "Marenas Sunny Isles",
+        "Trump Sunny Isles",
+        "Ocean Reserve Sunny Isles",
+        "Collins Avenue Sunny Isles",
     ]
 
     urls = []
 
     for q in queries:
-        for offset in [0, 18, 36, 54]:
-            urls.append(
-                f"{base}?{common}&query={quote(q)}&items_offset={offset}"
-            )
+        urls.append(f"{base}?{common}&query={quote(q)}")
 
     return urls
-
 
 def _collect_room_candidates(page):
     """Collect room URLs plus card-level text/price to avoid $0 competitors."""
