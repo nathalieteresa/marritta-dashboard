@@ -21,9 +21,9 @@ BANNED_PROPERTY_TYPES = [
 EXCLUDED_HOSTS = ["hosted by ritta", "hosted by rita", "hosted by marritta"]
 
 OFFICIAL_SPEC_PATTERN = re.compile(
-    r"(?P<guests>\d+)\s+guests?\s*[·•]\s*"
-    r"(?P<bedrooms>\d+)\s+bedrooms?\s*[·•]\s*"
-    r"(?P<beds>\d+)\s+beds?\s*[·•]\s*"
+    r"(?P<guests>\d+)\s+guests?\s*(?:[·•]|\s)+\s*"
+    r"(?P<bedrooms>\d+)\s+bedrooms?\s*(?:[·•]|\s)+\s*"
+    r"(?P<beds>\d+)\s+beds?\s*(?:[·•]|\s)+\s*"
     r"(?P<baths>\d+(?:\.\d+)?)\s+baths?",
     re.IGNORECASE,
 )
@@ -71,6 +71,47 @@ def _extract_official_specs(text: str):
         "bathroom_count": baths,
         "specs_line": match.group(0),
     }
+
+
+def _extract_official_specs_from_page(page):
+    """
+    Airbnb renders the headline specs as an <ol> with four <li> elements:
+    6 guests · 2 bedrooms · 2 beds · 3 baths.
+    This reads that exact visual block instead of depending on the full body text.
+    """
+    try:
+        ol_texts = page.locator("ol").all_inner_texts(timeout=5000)
+    except TypeError:
+        ol_texts = page.locator("ol").all_inner_texts()
+    except Exception:
+        ol_texts = []
+
+    for text in ol_texts:
+        normalized = re.sub(r"\s+", " ", text.replace("\n", " ").replace("•", "·")).strip()
+        lower = normalized.lower()
+        if all(word in lower for word in ["guest", "bedroom", "bed", "bath"]):
+            specs = _extract_official_specs(normalized)
+            if specs:
+                return specs
+
+    # Fallback: read li elements directly and combine nearby items.
+    try:
+        li_texts = page.locator("li").all_inner_texts(timeout=5000)
+    except TypeError:
+        li_texts = page.locator("li").all_inner_texts()
+    except Exception:
+        li_texts = []
+
+    clean_items = [re.sub(r"\s+", " ", x).strip() for x in li_texts if x and x.strip()]
+    for i in range(max(0, len(clean_items) - 3)):
+        block = " · ".join(clean_items[i:i+4])
+        lower = block.lower()
+        if all(word in lower for word in ["guest", "bedroom", "bed", "bath"]):
+            specs = _extract_official_specs(block)
+            if specs:
+                return specs
+
+    return None
 
 
 def _is_exact_marenas_competitor(combined_text: str, specs: dict | None) -> tuple[bool, list[str], list[str]]:
@@ -205,10 +246,14 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages: int = 18):
 
         for candidate in candidates:
             detail_text = ""
+            detail_specs = None
             try:
                 detail_page = context.new_page()
                 detail_page.goto(candidate["link"], wait_until="domcontentloaded", timeout=25000)
                 detail_page.wait_for_timeout(1600)
+                # First read the specific Airbnb <ol>/<li> block that contains:
+                # 6 guests · 2 bedrooms · 2 beds · 3 baths
+                detail_specs = _extract_official_specs_from_page(detail_page)
                 detail_text = detail_page.locator("body").inner_text(timeout=5000)
                 detail_page.close()
             except (PlaywrightTimeoutError, Exception):
@@ -218,7 +263,7 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages: int = 18):
                     pass
 
             combined_text = f"{candidate['title']}\n{candidate['raw_text']}\n{detail_text}"
-            specs = _extract_official_specs(detail_text) or _extract_official_specs(candidate["raw_text"])
+            specs = detail_specs or _extract_official_specs(detail_text) or _extract_official_specs(candidate["raw_text"])
 
             is_qualified, reasons, penalties = _is_exact_marenas_competitor(combined_text, specs)
             if not is_qualified:
