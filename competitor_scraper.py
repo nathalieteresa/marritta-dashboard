@@ -5,39 +5,27 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, quote
 
-# Strong owner/host exclusion. We intentionally avoid generic "rita" because it can create false positives.
-EXCLUDED_HOST_PATTERNS = [
-    re.compile(r"\britta\b", re.I),
-    re.compile(r"\bmarritta\b", re.I),
-    re.compile(r"\bmaritta\b", re.I),
-]
+# Host exclusion
+EXCLUDED_HOST_KEYWORDS = ["ritta", "rita", "marritta", "maritta"]
 
-# Property-type filter disabled for now.
-# Reason: searching banned words in the full Airbnb body creates false exclusions
-# because Airbnb may include words like "house rules" or "home" in unrelated sections.
+# Optional manual blocklist for known Marritta/Ritta listings.
+# Add Airbnb room IDs here if any of your own units still slip through.
+# Example: EXCLUDED_ROOM_IDS = {"32068829", "615927273042282673"}
+EXCLUDED_ROOM_IDS = set()
+
+# Property type filter intentionally disabled for now.
+# We rely on: Sunny Isles Airbnb search + 6 guests + 2 bedrooms + 3 baths + host exclusion.
 BANNED_PROPERTY_TYPES = []
 
-LOCATION_SIGNALS = [
-    "sunny isles",
-    "sunny isles beach",
-    "collins",
-    "marenas",
-    "sole",
-    "solé",
-    "trump international",
-    "ocean reserve",
-    "doubletree",
-    "marco polo",
-    "newport",
-    "hyde",
-    "beachfront",
-    "oceanfront",
-    "ocean view",
-    "beach access",
-    "private beach",
-]
-
 PRICE_RE = re.compile(r"\$\s?([1-9][0-9]{2,4})(?!\d)")
+ROOM_ID_RE = re.compile(r"/rooms/(\d+)")
+BAD_TITLE_SNIPPETS = [
+    "skip to content",
+    "start your search",
+    "new new experiences",
+    "new new services",
+    "homes new new",
+]
 
 
 def _clean_url(url):
@@ -49,15 +37,15 @@ def _clean_url(url):
     return urlunsplit((parts.scheme or "https", parts.netloc or "www.airbnb.com", parts.path, "", ""))
 
 
+def _room_id(url):
+    m = ROOM_ID_RE.search(url or "")
+    return m.group(1) if m else ""
+
+
 def _norm(text):
     if not text:
         return ""
     return re.sub(r"\s+", " ", text.replace("\xa0", " ").replace("·", " ")).strip()
-
-
-def _is_excluded_host(text):
-    text = text or ""
-    return any(pattern.search(text) for pattern in EXCLUDED_HOST_PATTERNS)
 
 
 def _first_reasonable_price(text):
@@ -96,10 +84,7 @@ def _parse_specs_from_text(text):
 
 
 def _extract_airbnb_specs_from_detail_page(page):
-    """
-    Airbnb often renders the official headline specs as consecutive <ol><li> items:
-    6 guests / 2 bedrooms / 2 beds or 3 beds / 3 baths.
-    """
+    """Read Airbnb's official headline specs from <ol><li> first, then fallback to body."""
     try:
         li_texts = page.locator("ol li").all_inner_texts(timeout=6000)
     except TypeError:
@@ -111,7 +96,6 @@ def _extract_airbnb_specs_from_detail_page(page):
         li_texts = []
 
     items = [_norm(x).replace("·", "").strip() for x in li_texts if _norm(x)]
-
     for i in range(max(0, len(items) - 3)):
         block_items = items[i:i + 4]
         joined = " ".join(block_items)
@@ -147,44 +131,56 @@ def _extract_airbnb_specs_from_detail_page(page):
 
 
 def _extract_title(page, fallback="Airbnb Listing"):
-    for selector in ["h1", "[data-testid='listing-card-title']", "title"]:
-        try:
-            text = page.locator(selector).first.inner_text(timeout=2500)
-            if text and len(text.strip()) > 3:
-                return _norm(text)
-        except Exception:
-            pass
+    # page.title() is usually cleaner than the body text when Airbnb renders weird accessibility text.
     try:
-        title = page.title()
-        if title:
-            return _norm(title.replace(" - Airbnb", ""))
+        doc_title = page.title()
+        if doc_title:
+            clean = _norm(doc_title.replace(" - Airbnb", ""))
+            if clean and not _is_bad_title(clean):
+                return clean
     except Exception:
         pass
-    return fallback
+
+    for selector in ["h1", "[data-testid='listing-card-title']"]:
+        try:
+            text = page.locator(selector).first.inner_text(timeout=2500)
+            clean = _norm(text)
+            if clean and len(clean) > 3 and not _is_bad_title(clean):
+                return clean
+        except Exception:
+            pass
+
+    clean_fallback = _norm(fallback)
+    return clean_fallback if clean_fallback and not _is_bad_title(clean_fallback) else "Airbnb Listing"
+
+
+def _is_bad_title(title):
+    low = (title or "").lower()
+    return any(s in low for s in BAD_TITLE_SNIPPETS)
+
+
+def _is_excluded_host(text):
+    low = (text or "").lower()
+    # Match names as words so we don't accidentally match random substrings.
+    return bool(re.search(r"\b(ritta|rita|marritta|maritta)\b", low))
 
 
 def _extract_full_detail_text(page):
-    """
-    Gets body text, then scrolls so Airbnb lazy-loads host/profile sections.
-    This is important to catch 'Hosted by Ritta'.
-    """
+    """Scrolls the detail page to force-load host text and pricing text."""
     parts = []
-
     try:
         parts.append(page.locator("body").inner_text(timeout=4000))
     except Exception:
         pass
 
-    # Scroll to trigger lazy loaded host sections.
-    for y in [2500, 5000, 8000, 11000]:
+    for y in [1500, 3500, 6500, 9500, 12500]:
         try:
             page.evaluate(f"window.scrollTo(0, {y})")
-            page.wait_for_timeout(350)
-            parts.append(page.locator("body").inner_text(timeout=2500))
+            page.wait_for_timeout(450)
+            parts.append(page.locator("body").inner_text(timeout=3000))
         except Exception:
             pass
 
-    # Return a de-duplicated-ish normalized body.
     return _norm(" ".join(parts))
 
 
@@ -199,54 +195,93 @@ def _build_search_urls(checkin, checkout):
         "Sunny Isles Beach Collins ocean view 2 bedroom 3 bath",
         "Marenas Sunny Isles 2 bedroom 3 bath",
         "Sunny Isles Beach beachfront condo 2 bedroom 3 bath",
-        "Sunny Isles Beach oceanfront apartment 2 bedroom 3 bath",
         "Sunny Isles Beach resort condo 2 bedroom 3 bath",
     ]
     return [f"{base}?{common}&query={quote(q)}" for q in queries]
 
 
-def _collect_room_links(page):
-    links = []
+def _collect_room_candidates(page):
+    """Collect room URLs plus card-level text/price to avoid $0 competitors."""
+    candidates = []
+    seen = set()
 
     try:
-        hrefs = page.locator("a[href*='/rooms/']").evaluate_all("els => els.map(a => a.href)")
-        for href in hrefs:
-            clean = _clean_url(href)
-            if clean and clean not in links:
-                links.append(clean)
+        anchors = page.locator("a[href*='/rooms/']")
+        count = anchors.count()
+        for i in range(count):
+            try:
+                a = anchors.nth(i)
+                href = a.evaluate("el => el.href")
+                clean = _clean_url(href)
+                if not clean or clean in seen:
+                    continue
+                seen.add(clean)
+
+                card_text = ""
+                # Try to read the closest listing card text, not the whole page.
+                for js in [
+                    "el => el.closest('[itemprop=\\\"itemListElement\\\"]')?.innerText",
+                    "el => el.closest('div')?.innerText",
+                    "el => el.innerText",
+                ]:
+                    try:
+                        card_text = a.evaluate(js) or ""
+                        if card_text and len(card_text.strip()) > 20:
+                            break
+                    except Exception:
+                        pass
+
+                card_text = _norm(card_text)
+                candidates.append({
+                    "url": clean,
+                    "card_text": card_text,
+                    "card_price": _first_reasonable_price(card_text),
+                })
+            except Exception:
+                continue
     except Exception:
         pass
 
+    # Raw HTML fallback.
     try:
         html = page.content()
         for href in re.findall(r'https://www\.airbnb\.com/rooms/[0-9]+', html):
             clean = _clean_url(href)
-            if clean and clean not in links:
-                links.append(clean)
+            if clean and clean not in seen:
+                seen.add(clean)
+                candidates.append({"url": clean, "card_text": "", "card_price": None})
     except Exception:
         pass
 
-    return links
+    return candidates
 
 
-def _qualified(specs, full_text, title="", url=""):
-    combined_text = f"{title} {url} {full_text}".lower()
+def _qualified(specs, combined_text, title, url, price):
+    rid = _room_id(url)
+    if rid in EXCLUDED_ROOM_IDS:
+        return False, "Excluded manual room ID", True
 
-    if _is_excluded_host(combined_text):
-        return False, "Excluded host/name: Ritta/Marritta detected"
+    ritta_detected = _is_excluded_host(" ".join([combined_text or "", title or "", url or ""]))
+    if ritta_detected:
+        return False, "Excluded host: Ritta/Rita/Marritta", True
+
+    if _is_bad_title(title):
+        return False, "Bad/non-listing title", False
 
     if not specs:
-        return False, "Specs not found"
+        return False, "Specs not found", False
 
-    # Core competitor filter. Bed count is intentionally allowed to vary.
     if not (
         specs.get("guest_count") == 6 and
         specs.get("bedroom_count") == 2 and
         float(specs.get("bathroom_count")) == 3.0
     ):
-        return False, f"Specs mismatch: {specs.get('specs_line', specs)}"
+        return False, f"Specs mismatch: {specs.get('specs_line', specs)}", False
 
-    return True, "Core match: 6 guests · 2 bedrooms · 3 baths; bed count allowed to vary"
+    if not price or price <= 0:
+        return False, "Price not found", False
+
+    return True, "Core match: 6 guests · 2 bedrooms · 3 baths; bed count allowed to vary", False
 
 
 def get_airbnb_prices(checkin, checkout, max_detail_pages=45, debug=True, max_seconds=95):
@@ -275,7 +310,6 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=45, debug=True, max_se
             viewport={"width": 1440, "height": 1200},
         )
 
-        # Keep CSS/JS, but block heavy resources.
         context.route(
             "**/*",
             lambda route: route.abort()
@@ -283,7 +317,7 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=45, debug=True, max_se
             else route.continue_(),
         )
 
-        search_links = []
+        search_candidates = []
         for idx, url in enumerate(_build_search_urls(checkin, checkout), start=1):
             if time.time() - start_time > max_seconds:
                 break
@@ -304,16 +338,15 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=45, debug=True, max_se
                     try:
                         (debug_dir / f"search_{idx}.html").write_text(page.content(), encoding="utf-8")
                         (debug_dir / f"search_{idx}.txt").write_text(
-                            page.locator("body").inner_text(timeout=5000),
-                            encoding="utf-8",
+                            page.locator("body").inner_text(timeout=5000), encoding="utf-8"
                         )
                     except Exception:
                         pass
 
-                for link in _collect_room_links(page):
-                    if link not in seen:
-                        seen.add(link)
-                        search_links.append(link)
+                for c in _collect_room_candidates(page):
+                    if c["url"] not in seen:
+                        seen.add(c["url"])
+                        search_candidates.append(c)
             except Exception:
                 pass
             finally:
@@ -322,16 +355,21 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=45, debug=True, max_se
                 except Exception:
                     pass
 
-        for n, link in enumerate(search_links[:max_detail_pages], start=1):
+        for n, candidate in enumerate(search_candidates[:max_detail_pages], start=1):
             if time.time() - start_time > max_seconds:
                 break
+
+            link = candidate["url"]
+            card_text = candidate.get("card_text", "")
+            card_price = candidate.get("card_price")
 
             detail_page = context.new_page()
             status = "opened"
             specs = None
             title = "Airbnb Listing"
-            price = None
+            price = card_price
             body = ""
+            ritta_detected = False
 
             try:
                 try:
@@ -340,16 +378,19 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=45, debug=True, max_se
                     detail_page.goto(link, wait_until="domcontentloaded", timeout=15000)
 
                 detail_page.wait_for_timeout(1200)
-
                 specs = _extract_airbnb_specs_from_detail_page(detail_page)
-                title = _extract_title(detail_page)
                 body = _extract_full_detail_text(detail_page)
-                price = _first_reasonable_price(body)
+                title = _extract_title(detail_page, fallback=card_text[:90] if card_text else "Airbnb Listing")
+
+                detail_price = _first_reasonable_price(body)
+                if detail_price:
+                    price = detail_price
+
+                ritta_detected = _is_excluded_host(" ".join([body, card_text, title, link]))
 
                 if debug and n <= 10:
                     (debug_dir / f"detail_{n}.html").write_text(detail_page.content(), encoding="utf-8")
                     (debug_dir / f"detail_{n}.txt").write_text(body, encoding="utf-8")
-
             except PlaywrightTimeoutError:
                 status = "timeout"
             except Exception as e:
@@ -360,7 +401,10 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=45, debug=True, max_se
                 except Exception:
                     pass
 
-            ok, reason = _qualified(specs, body, title=title, url=link)
+            combined_text = " ".join([body, card_text])
+            ok, reason, forced_ritta = _qualified(specs, combined_text, title, link, price)
+            ritta_detected = ritta_detected or forced_ritta
+
             debug_rows.append({
                 "n": n,
                 "url": link,
@@ -370,7 +414,8 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=45, debug=True, max_se
                 "qualified": ok,
                 "reason": reason,
                 "price": price or "",
-                "ritta_detected": _is_excluded_host(f"{title} {link} {body}"),
+                "ritta_detected": ritta_detected,
+                "card_price": card_price or "",
             })
 
             if ok:
@@ -378,7 +423,7 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=45, debug=True, max_se
                     "title": title,
                     "link": link,
                     "raw_text": body[:1200],
-                    "price": price or 0,
+                    "price": price,
                     "relevance": "High",
                     "relevance_score": 15,
                     "direct_competitor": True,
@@ -405,8 +450,8 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=45, debug=True, max_se
                 writer = csv.DictWriter(
                     f,
                     fieldnames=[
-                        "n", "url", "title", "status", "specs_found",
-                        "qualified", "reason", "price", "ritta_detected",
+                        "n", "url", "title", "status", "specs_found", "qualified", "reason",
+                        "price", "ritta_detected", "card_price",
                     ],
                 )
                 writer.writeheader()
