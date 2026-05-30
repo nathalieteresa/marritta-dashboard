@@ -1,6 +1,7 @@
- # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
+from pathlib import Path
 import plotly.express as px
 from datetime import date, timedelta
 from events_api import get_miami_events
@@ -1259,6 +1260,35 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
 
     else:
         st.warning(tr("No competitor listings detected. Try adjusting the dates."))
+
+        st.markdown("### 🔎 Diagnóstico del scraper")
+        st.write("Esto nos ayuda a saber si Airbnb no entregó links, si Playwright no pudo abrir los listings, o si el filtro exacto descartó todos.")
+
+        debug_path = Path("airbnb_debug/debug_report.csv")
+        search_txt_path = Path("airbnb_debug/search_1.txt")
+
+        if debug_path.exists():
+            try:
+                debug_df = pd.read_csv(debug_path)
+                st.write(f"Listings abiertos por el scraper: **{len(debug_df)}**")
+                if len(debug_df) > 0:
+                    st.dataframe(debug_df, use_container_width=True, hide_index=True)
+                    with st.expander("Ver razones de descarte"):
+                        st.write(debug_df[["title", "specs_found", "reason", "url"]])
+                else:
+                    st.error("El scraper encontró 0 links de listings en la página de búsqueda de Airbnb.")
+            except Exception as e:
+                st.error(f"No pude leer debug_report.csv: {e}")
+        else:
+            st.error("No se creó airbnb_debug/debug_report.csv. Eso significa que el scraper no llegó a la fase de diagnóstico o no está usando la versión correcta.")
+
+        if search_txt_path.exists():
+            try:
+                search_text = search_txt_path.read_text(encoding="utf-8", errors="ignore")[:3000]
+                with st.expander("Primer texto recibido desde Airbnb"):
+                    st.text(search_text)
+            except Exception:
+                pass
 
 # ---------------------------------------------------
 # HISTORICAL MARKET ANALYTICS — always visible below
