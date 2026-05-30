@@ -52,7 +52,7 @@ def _first_reasonable_price(text):
             values.append(val)
     if not values:
         return None
-    return min(values)
+    return max(values)
 
 
 def _parse_specs_from_text(text):
@@ -183,15 +183,18 @@ def _extract_full_detail_text(page):
 def _build_search_urls(checkin, checkout):
     base = "https://www.airbnb.com/s/Sunny-Isles-Beach--Florida--United-States/homes"
     common = (
-        f"checkin={checkin}&checkout={checkout}&adults=6&min_bedrooms=2&min_bathrooms=3"
+        f"checkin={checkin}&checkout={checkout}&adults=6&min_bedrooms=2&min_bathrooms=2"
         "&room_types%5B%5D=Entire%20home%2Fapt"
     )
     queries = [
-        "Sunny Isles Beach Marenas resort 6 guests 2 bedrooms 3 baths",
-        "Sunny Isles Beach Collins ocean view 2 bedroom 3 bath",
-        "Marenas Sunny Isles 2 bedroom 3 bath",
-        "Sunny Isles Beach beachfront condo 2 bedroom 3 bath",
-        "Sunny Isles Beach resort condo 2 bedroom 3 bath",
+        "Marenas Sunny Isles 6 guests 2 bedrooms 2.5 baths",
+        "Marenas Sunny Isles 6 guests 2 bedrooms 3 baths",
+        "Sunny Isles Beach oceanfront condo 6 guests 2 bedrooms 2.5 baths",
+        "Sunny Isles Beach oceanfront condo 6 guests 2 bedrooms 3 baths",
+        "Trump Sunny Isles 6 guests 2 bedrooms 2.5 baths",
+        "Trump Sunny Isles 6 guests 2 bedrooms 3 baths",
+        "Ocean Reserve Sunny Isles 6 guests 2 bedrooms 2.5 baths",
+        "Solé Sunny Isles 6 guests 2 bedrooms 2.5 baths",
     ]
     return [f"{base}?{common}&query={quote(q)}" for q in queries]
 
