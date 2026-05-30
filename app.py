@@ -705,7 +705,7 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
             if price is None:
                 continue
             clean_listings.append({
-                "Listing": clean_airbnb_title(listing["raw_text"], listing["title"]),
+                "Listing": listing["title"],
                 "Competitor Price": price,
                 "Price per Night": round(price / nights) if nights > 0 else None,
                 "Relevance": listing["relevance"],
