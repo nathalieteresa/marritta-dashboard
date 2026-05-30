@@ -54,6 +54,44 @@ def _first_reasonable_price(text):
         return None
     return max(values)
 
+def _extract_booking_panel_price(page):
+
+    selectors = [
+        "span.p157orwa",
+        "[data-testid='book-it-default-price']",
+        "[data-testid='price-availability-row']",
+    ]
+
+    for selector in selectors:
+
+        try:
+
+            elements = page.locator(selector)
+
+            count = elements.count()
+
+            for i in range(count):
+
+                text = elements.nth(i).inner_text()
+
+                m = re.search(
+                    r"\$([0-9,]+(?:\.\d{2})?)",
+                    text
+                )
+
+                if m:
+
+                    return round(
+                        float(
+                            m.group(1).replace(",", "")
+                        )
+                    )
+
+        except:
+            pass
+
+    return None
+
 
 def _parse_specs_from_text(text):
     """Flexible parser for strings like '6 guests 2 bedrooms 3 beds 3 baths'."""
@@ -380,9 +418,23 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_se
                 body = _extract_full_detail_text(detail_page)
                 title = _extract_title(detail_page, fallback=card_text[:90] if card_text else "Airbnb Listing")
 
-                detail_price = _first_reasonable_price(body)
-                if detail_price:
-                    price = detail_price
+                panel_price = _extract_booking_panel_price(detail_page)
+                print(
+                    "PRICE DEBUG:",
+                    title,
+                    "| panel:",
+                    panel_price,
+                    "| card:",
+                    card_price
+                )
+
+                if panel_price:
+                    price = panel_price
+                else:
+                    detail_price = _first_reasonable_price(body)
+
+                    if detail_price:
+                        price = detail_price
 
                 ritta_detected = _is_excluded_host(" ".join([body, card_text, title, link]))
 
