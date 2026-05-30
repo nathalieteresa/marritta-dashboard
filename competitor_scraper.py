@@ -13,7 +13,7 @@ EXCLUDED_ROOM_IDS = set()
 # We rely on: Sunny Isles Airbnb search + 6 guests + 2 bedrooms + 3 baths + host exclusion.
 BANNED_PROPERTY_TYPES = []
 
-PRICE_RE = re.compile(r"\$\s?([1-9][0-9]{2,4})(?!\d)")
+PRICE_RE = re.compile(r"\$\s?([1-9][0-9,]*(?:\.\d{2})?)")
 ROOM_ID_RE = re.compile(r"/rooms/(\d+)")
 BAD_TITLE_SNIPPETS = [
     "skip to content",
@@ -45,14 +45,36 @@ def _norm(text):
 
 
 def _first_reasonable_price(text):
+    text = _norm(text or "")
+
+    # Busca precio total tipo "$7,738 for 10 nights"
+    m = re.search(
+        r"\$\s?([1-9][0-9,]*(?:\.\d{2})?)\s+for\s+\d+\s+nights?",
+        text,
+        re.IGNORECASE
+    )
+    if m:
+        return round(float(m.group(1).replace(",", "")))
+
+    # Busca precio total tipo "10 nights x $773.72 $7,737.18"
+    m = re.search(
+        r"\d+\s+nights?\s*x\s*\$\s?[0-9,]+(?:\.\d{2})?\s+\$\s?([1-9][0-9,]*(?:\.\d{2})?)",
+        text,
+        re.IGNORECASE
+    )
+    if m:
+        return round(float(m.group(1).replace(",", "")))
+
     values = []
-    for m in PRICE_RE.finditer(text or ""):
-        val = int(m.group(1).replace(",", ""))
-        if 100 <= val <= 5000:
+    for m in PRICE_RE.finditer(text):
+        val = float(m.group(1).replace(",", ""))
+        if 100 <= val <= 50000:
             values.append(val)
+
     if not values:
         return None
-    return max(values)
+
+    return round(max(values))
 
 def _extract_booking_panel_price(page):
 
