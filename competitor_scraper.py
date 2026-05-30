@@ -8,11 +8,6 @@ from urllib.parse import urlsplit, urlunsplit, quote
 # Host exclusion
 EXCLUDED_HOST_KEYWORDS = ["ritta", "rita", "marritta", "maritta"]
 
-# Optional manual blocklist for known Marritta/Ritta listings.
-# Add Airbnb room IDs here if any of your own units still slip through.
-# Example: EXCLUDED_ROOM_IDS = {"32068829", "615927273042282673"}
-EXCLUDED_ROOM_IDS = {"615927273042282673"}
-
 # Property type filter intentionally disabled for now.
 # We rely on: Sunny Isles Airbnb search + 6 guests + 2 bedrooms + 3 baths + host exclusion.
 BANNED_PROPERTY_TYPES = []
@@ -274,7 +269,7 @@ def _qualified(specs, combined_text, title, url, price):
     if not (
         specs.get("guest_count") == 6 and
         specs.get("bedroom_count") == 2 and
-        float(specs.get("bathroom_count")) == 3.0
+        float(specs.get("bathroom_count")) in [2.5, 3.0]
     ):
         return False, f"Specs mismatch: {specs.get('specs_line', specs)}", False
 
@@ -284,7 +279,7 @@ def _qualified(specs, combined_text, title, url, price):
     return True, "Core match: 6 guests · 2 bedrooms · 3 baths; bed count allowed to vary", False
 
 
-def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_seconds=90):
+def get_airbnb_prices(checkin, checkout, max_detail_pages=60, debug=True, max_seconds=180):
     listings = []
     debug_rows = []
     seen = set()
