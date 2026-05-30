@@ -7,8 +7,9 @@ from events_api import get_miami_events
 from database import supabase
 from competitor_scraper import get_airbnb_prices
 
-@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+@st.cache_data(ttl=60 * 20, show_spinner=False)
 def get_cached_airbnb_prices(checkin: str, checkout: str):
+    # Short cache while testing filters. Once stable, increase TTL again.
     return get_airbnb_prices(checkin, checkout)
 from holiday_engine import get_us_holidays_in_range
 from weather_engine import get_weather_forecast, get_weather_signal
@@ -676,6 +677,11 @@ with col_date3:
     st.metric(tr("Nights"), nights)
 
 st.markdown("")
+
+if st.button("🧹 Limpiar cache / Reintentar búsqueda fresca"):
+    st.cache_data.clear()
+    st.success("Cache limpiado. Ahora vuelve a presionar Analizar mercado.")
+
 
 if st.button(f"🔍 {tr('Analyze Market')}"):
 
