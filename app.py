@@ -6,6 +6,10 @@ from datetime import date, timedelta
 from events_api import get_miami_events
 from database import supabase
 from competitor_scraper import get_airbnb_prices
+
+@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+def get_cached_airbnb_prices(checkin: str, checkout: str):
+    return get_airbnb_prices(checkin, checkout)
 from holiday_engine import get_us_holidays_in_range
 from weather_engine import get_weather_forecast, get_weather_signal
 from deep_translator import GoogleTranslator
@@ -682,7 +686,7 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
             selected_checkout.strftime("%Y-%m-%d")
         )
 
-        listings = get_airbnb_prices(
+        listings = get_cached_airbnb_prices(
             selected_checkin.strftime("%Y-%m-%d"),
             selected_checkout.strftime("%Y-%m-%d")
         )
