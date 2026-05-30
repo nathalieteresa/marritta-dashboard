@@ -47,6 +47,31 @@ def extract_number(patterns, text):
         if match:
             return int(float(match.group(1)))
     return None
+
+def extract_airbnb_specs(detail_text):
+    specs_line = ""
+
+    for line in detail_text.split("\n"):
+        line_clean = line.strip().lower()
+
+        if (
+            "guest" in line_clean
+            and "bedroom" in line_clean
+            and "bed" in line_clean
+            and "bath" in line_clean
+        ):
+            specs_line = line_clean
+            break
+
+    if not specs_line:
+        return None, None, None, None, ""
+
+    guest_count = extract_number([r"(\d+)\s+guests?"], specs_line)
+    bedroom_count = extract_number([r"(\d+)\s+bedrooms?"], specs_line)
+    bed_count = extract_number([r"(\d+)\s+beds?"], specs_line)
+    bathroom_count = extract_number([r"(\d+(?:\.\d+)?)\s+baths?"], specs_line)
+
+    return guest_count, bedroom_count, bed_count, bathroom_count, specs_line
     
 def get_airbnb_prices(checkin, checkout):
 
@@ -241,25 +266,20 @@ def get_airbnb_prices(checkin, checkout):
 
                 combined_text = f"{title} {text} {detail_text}".lower()
 
-                guest_count = extract_number([
-                    r"(\d+)\s+guests?",
-                    r"up to\s+(\d+)\s+people",
-                    r"sleeps\s+(\d+)"
-                ], combined_text)
+                guest_count, bedroom_count, bed_count, bathroom_count, specs_line = extract_airbnb_specs(detail_text)
 
-                bedroom_count = extract_number([
-                    r"(\d+)\s+bedrooms?",
-                    r"(\d+)\s+bedroom",
-                ], combined_text)
+                # Fallback por si Airbnb cambia el formato o no aparece la línea oficial
+                if guest_count is None:
+                    guest_count = extract_number([r"(\d+)\s+guests?", r"up to\s+(\d+)\s+people", r"sleeps\s+(\d+)"], combined_text)
 
-                bed_count = extract_number([
-                    r"(\d+)\s+beds?",
-                ], combined_text)
+                if bedroom_count is None:
+                    bedroom_count = extract_number([r"(\d+)\s+bedrooms?", r"(\d+)\s+bedroom"], combined_text)
 
-                bathroom_count = extract_number([
-                    r"(\d+(?:\.\d+)?)\s+baths?",
-                    r"(\d+(?:\.\d+)?)\s+bathrooms?"
-                ], combined_text)
+                if bed_count is None:
+                    bed_count = extract_number([r"(\d+)\s+beds?"], combined_text)
+
+                if bathroom_count is None:
+                    bathroom_count = extract_number([r"(\d+(?:\.\d+)?)\s+baths?", r"(\d+(?:\.\d+)?)\s+bathrooms?"], combined_text)
 
                 fit_score = 0
                 fit_reasons = []
@@ -379,6 +399,7 @@ def get_airbnb_prices(checkin, checkout):
                     "bed_count": bed_count,
                     "bathroom_count": bathroom_count,
                     "match_quality": match_quality,
+                    "specs_line": specs_line,
                 })
 
             except:
