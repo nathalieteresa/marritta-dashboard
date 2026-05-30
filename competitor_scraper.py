@@ -246,17 +246,27 @@ def _build_search_urls(checkin, checkout):
         f"checkin={checkin}&checkout={checkout}&adults=6&min_bedrooms=2&min_bathrooms=2"
         "&room_types%5B%5D=Entire%20home%2Fapt"
     )
+
     queries = [
-        "Marenas Sunny Isles 6 guests 2 bedrooms 2.5 baths",
-        "Marenas Sunny Isles 6 guests 2 bedrooms 3 baths",
-        "Sunny Isles Beach oceanfront condo 6 guests 2 bedrooms 2.5 baths",
-        "Sunny Isles Beach oceanfront condo 6 guests 2 bedrooms 3 baths",
-        "Trump Sunny Isles 6 guests 2 bedrooms 2.5 baths",
-        "Trump Sunny Isles 6 guests 2 bedrooms 3 baths",
-        "Ocean Reserve Sunny Isles 6 guests 2 bedrooms 2.5 baths",
-        "Solé Sunny Isles 6 guests 2 bedrooms 2.5 baths",
+        "Sunny Isles Beach 6 guests 2 bedrooms 3 baths",
+        "Sunny Isles Beach 6 guests 2 bedrooms 2.5 baths",
+        "Marenas Sunny Isles 6 guests 2 bedrooms",
+        "Trump Sunny Isles 6 guests 2 bedrooms",
+        "Ocean Reserve Sunny Isles 6 guests 2 bedrooms",
+        "Solé Sunny Isles 6 guests 2 bedrooms",
+        "Collins Avenue Sunny Isles 6 guests 2 bedrooms",
+        "Sunny Isles oceanfront condo 6 guests 2 bedrooms",
     ]
-    return [f"{base}?{common}&query={quote(q)}" for q in queries]
+
+    urls = []
+
+    for q in queries:
+        for offset in [0, 18, 36, 54]:
+            urls.append(
+                f"{base}?{common}&query={quote(q)}&items_offset={offset}"
+            )
+
+    return urls
 
 
 def _collect_room_candidates(page):
@@ -388,9 +398,9 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_se
                     page.goto(url, wait_until="domcontentloaded", timeout=18000)
 
                 page.wait_for_timeout(1200)
-                for _ in range(3):
-                    page.mouse.wheel(0, 3500)
-                    page.wait_for_timeout(500)
+                for _ in range(8):
+                    page.mouse.wheel(0, 4500)
+                    page.wait_for_timeout(800)
 
                 if debug:
                     try:
@@ -413,6 +423,8 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_se
                 except Exception:
                     pass
 
+        print("TOTAL ROOM CANDIDATES FOUND:", len(search_candidates))
+        
         for n, candidate in enumerate(search_candidates[:max_detail_pages], start=1):
             if time.time() - start_time > max_seconds:
                 break
