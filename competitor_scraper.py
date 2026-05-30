@@ -341,7 +341,7 @@ def _qualified(specs, combined_text, title, url, price):
     if not (
         specs.get("guest_count") == 6 and
         specs.get("bedroom_count") == 2 and
-        float(specs.get("bathroom_count")) in [2.5, 3.0]
+        float(specs.get("bathroom_count")) in [2.0, 2.5, 3.0]
     ):
         return False, f"Specs mismatch: {specs.get('specs_line', specs)}", False
 
