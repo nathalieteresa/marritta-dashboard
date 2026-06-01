@@ -1045,11 +1045,33 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
             )
 
             if len(events_in_window) > 0:
-                with st.expander(f"📍 {tr('View event details')}"):
+                with st.expander(f"📍 {tr('View event details')} ({len(events_in_window)})"):
+                    from collections import defaultdict
+                    events_by_month = defaultdict(list)
                     for event in events_in_window:
-                        event_name = event.get("name", "Event")
-                        event_date_str = event["dates"]["start"]["localDate"]
-                        st.write(f"• {event_name} — {event_date_str}")
+                        try:
+                            ev_date = pd.to_datetime(event["dates"]["start"]["localDate"])
+                            month_key = ev_date.strftime("%B %Y")
+                            month_sort = ev_date.strftime("%Y-%m")
+                            ev_name = event.get("name", "Event")
+                            ev_impact = next(
+                                (w for kw, w in event_weights.items() if kw in ev_name.lower()), 1
+                            )
+                            events_by_month[(month_sort, month_key)].append({
+                                "name": ev_name,
+                                "date": ev_date,
+                                "date_str": ev_date.strftime("%a %b %d"),
+                                "impact": ev_impact,
+                            })
+                        except:
+                            pass
+                    for (month_sort, month_label) in sorted(events_by_month.keys()):
+                        month_events = sorted(events_by_month[(month_sort, month_label)], key=lambda x: x["date"])
+                        st.markdown(f"**📅 {month_label}** — {len(month_events)} {tr('events')}")
+                        for ev in month_events:
+                            badge = "🔥" if ev["impact"] >= 8 else ("📌" if ev["impact"] >= 4 else "•")
+                            st.markdown(f"{badge} **{ev['date_str']}** &nbsp; {ev['name']}")
+                        st.divider()
 
             if len(high_impact_events) > 0:
                 with st.expander(f"🔥 {tr('High-impact demand drivers')}"):
@@ -1062,9 +1084,29 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
                         st.write(f"• {event_name}")
 
             if len(holiday_events) > 0:
-                with st.expander(f"🎁 {tr('View holiday details')}"):
+                with st.expander(f"🎁 {tr('View holiday details')} ({len(holiday_events)})"):
+                    from collections import defaultdict
+                    holidays_by_month = defaultdict(list)
                     for holiday in holiday_events:
-                        st.write(f"• {holiday['name']} — {holiday['date']}")
+                        try:
+                            h_date = pd.to_datetime(str(holiday["date"]))
+                            month_key = h_date.strftime("%B %Y")
+                            month_sort = h_date.strftime("%Y-%m")
+                            holidays_by_month[(month_sort, month_key)].append({
+                                "name": holiday["name"],
+                                "date": h_date,
+                                "date_str": h_date.strftime("%a %b %d"),
+                                "impact": holiday.get("impact", 0),
+                            })
+                        except:
+                            pass
+                    for (month_sort, month_label) in sorted(holidays_by_month.keys()):
+                        month_holidays = sorted(holidays_by_month[(month_sort, month_label)], key=lambda x: x["date"])
+                        st.markdown(f"**📅 {month_label}** — {len(month_holidays)} {tr('holidays')}")
+                        for h in month_holidays:
+                            impact_str = f" *(+{h['impact']} pts)*" if h.get("impact") else ""
+                            st.markdown(f"🎁 **{h['date_str']}** &nbsp; {h['name']}{impact_str}")
+                        st.divider()
 
             if len(events_in_window) == 0 and len(holiday_events) == 0:
                 st.caption(tr("No major events or holidays detected for the selected dates."))
