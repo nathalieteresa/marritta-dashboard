@@ -344,7 +344,7 @@ def _qualified(specs, combined_text, title, url, price):
 
     return True, "Core match: 6 guests · 2 bedrooms · 2.5 or 3 baths; bed count allowed to vary", False
 
-def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_seconds=120):
+def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_seconds=300):
     listings = []
     debug_rows = []
     seen = set()
@@ -434,12 +434,16 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_se
             ritta_detected = False
 
             try:
+                # ✅ FIX: incluir fechas en la URL del listing para que Airbnb
+                # pre-calcule el precio total correcto para esas noches.
+                link_with_dates = f"{link}?checkin={checkin}&checkout={checkout}&adults=6"
                 try:
-                    detail_page.goto(link, wait_until="domcontentloaded", timeout=15000)
+                    detail_page.goto(link_with_dates, wait_until="domcontentloaded", timeout=15000)
                 except Exception:
-                    detail_page.goto(link, wait_until="domcontentloaded", timeout=15000)
+                    detail_page.goto(link_with_dates, wait_until="domcontentloaded", timeout=15000)
 
-                detail_page.wait_for_timeout(1200)
+                # ✅ FIX: esperar más para que carguen los specs y el panel de precios
+                detail_page.wait_for_timeout(2500)
                 specs = _extract_airbnb_specs_from_detail_page(detail_page)
                 body = _extract_full_detail_text(detail_page)
                 title = _extract_title(detail_page, fallback=card_text[:90] if card_text else "Airbnb Listing")
