@@ -13,6 +13,21 @@ EXCLUDED_ROOM_IDS = set()
 # We rely on: Sunny Isles Airbnb search + 6 guests + 2 bedrooms + 3 baths + host exclusion.
 BANNED_PROPERTY_TYPES = []
 
+# Strict Marenas Resort filter
+MARENAS_MATCH_TERMS = [
+    "marenas",
+    "marenas beach",
+    "marenas beach resort",
+    "marenas resort",
+    "18683 collins",
+    "18683 collins ave",
+    "18683 collins avenue",
+]
+
+def _is_marenas_listing(text):
+    low = _norm(text).lower()
+    return any(term in low for term in MARENAS_MATCH_TERMS)
+
 PRICE_RE = re.compile(r"\$\s?([1-9][0-9,]*(?:\.\d{2})?)")
 ROOM_ID_RE = re.compile(r"/rooms/(\d+)")
 BAD_TITLE_SNIPPETS = [
@@ -243,15 +258,13 @@ def _build_search_urls(checkin, checkout):
         "&room_types%5B%5D=Entire%20home%2Fapt"
     )
 
+    # Only search for listings that are likely to be inside Marenas Beach Resort.
+    # The old broad queries were pulling Trump, Ocean Reserve, and generic Collins Ave listings.
     queries = [
-        "Sunny Isles Beach",
-        "Sunny Isles Beach condo",
-        "Sunny Isles Beach ocean view",
-        "Sunny Isles Beach beachfront",
+        "Marenas Beach Resort",
         "Marenas Sunny Isles",
-        "Trump Sunny Isles",
-        "Ocean Reserve Sunny Isles",
-        "Collins Avenue Sunny Isles",
+        "Marenas Resort Sunny Isles",
+        "18683 Collins Ave",
     ]
 
     urls = []
@@ -329,6 +342,10 @@ def _qualified(specs, combined_text, title, url, price):
     if _is_bad_title(title):
         return False, "Bad/non-listing title", False
 
+    marenas_text = " ".join([combined_text or "", title or "", url or ""])
+    if not _is_marenas_listing(marenas_text):
+        return False, "Not Marenas Beach Resort / 18683 Collins Ave", False
+
     if not specs:
         return False, "Specs not found", False
 
@@ -342,7 +359,7 @@ def _qualified(specs, combined_text, title, url, price):
     if not price or price <= 0:
         return False, "Price not found", False
 
-    return True, "Core match: 6 guests · 2 bedrooms · 2.5 or 3 baths; bed count allowed to vary", False
+    return True, "Marenas match + core specs: 6 guests · 2 bedrooms · 2.5 or 3 baths", False
 
 def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_seconds=300):
     listings = []
@@ -508,14 +525,14 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_se
                     "relevance_score": 15,
                     "direct_competitor": True,
                     "fit_score": 15,
-                    "fit_reasons": "Matches 6 guests · 2 bedrooms · 2.5 or 3 baths; bed count allowed to vary; Sunny Isles search; Ritta/Marritta excluded",
+                    "fit_reasons": "Marenas Beach Resort / 18683 Collins match + 6 guests · 2 bedrooms · 2.5 or 3 baths; Ritta/Marritta excluded",
                     "penalty_reasons": "",
                     "qualified_competitor": True,
                     "guest_count": specs["guest_count"],
                     "bedroom_count": specs["bedroom_count"],
                     "bed_count": specs["bed_count"],
                     "bathroom_count": specs["bathroom_count"],
-                    "match_quality": "Core Airbnb specs match",
+                    "match_quality": "Marenas resort + core Airbnb specs match",
                     "specs_line": specs["specs_line"],
                 })
 
