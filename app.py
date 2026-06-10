@@ -8,19 +8,26 @@ from events_api import get_miami_events
 from database import supabase
 from competitor_scraper import get_airbnb_prices
 try:
-    from marenas_official_scraper import get_marenas_official_prices
+    from booking_vrbo_scraper import get_booking_prices, get_vrbo_prices
 except Exception:
-    get_marenas_official_prices = None
+    get_booking_prices = None
+    get_vrbo_prices = None
 
 @st.cache_data(ttl=60 * 60 * 3, show_spinner="Analizando competidores en Airbnb... puede tardar 1–2 minutos la primera vez.")
 def get_cached_airbnb_prices(checkin: str, checkout: str):
     return get_airbnb_prices(checkin, checkout, max_detail_pages=12, max_seconds=150, use_cache=True)
 
-@st.cache_data(ttl=60 * 60 * 3, show_spinner="Analizando tarifas oficiales de Marenas...")
-def get_cached_marenas_official_prices(checkin: str, checkout: str):
-    if get_marenas_official_prices is None:
+@st.cache_data(ttl=60 * 60 * 3, show_spinner="Analizando Booking.com...")
+def get_cached_booking_prices(checkin: str, checkout: str):
+    if get_booking_prices is None:
         return []
-    return get_marenas_official_prices(checkin, checkout, adults=1, rooms=1, max_seconds=70)
+    return get_booking_prices(checkin, checkout, max_detail_pages=10, max_seconds=120, use_cache=True)
+
+@st.cache_data(ttl=60 * 60 * 3, show_spinner="Analizando VRBO...")
+def get_cached_vrbo_prices(checkin: str, checkout: str):
+    if get_vrbo_prices is None:
+        return []
+    return get_vrbo_prices(checkin, checkout, max_detail_pages=10, max_seconds=120, use_cache=True)
 from holiday_engine import get_us_holidays_in_range
 from weather_engine import get_weather_forecast, get_weather_signal
 from deep_translator import GoogleTranslator
@@ -432,7 +439,7 @@ def tr(text):
         "General market competitors": "Competidores generales del mercado",
         "Sunny Isles Beach / Airbnb": "Sunny Isles Beach / Airbnb",
         "Marritta Dashboard": "Marritta Dashboard",
-        "AI-powered pricing recommendations for Airbnb and VRBO": "Recomendaciones de precios para Airbnb y VRBO impulsadas por IA",
+        "AI-powered pricing recommendations using Airbnb, Booking.com and VRBO": "Recomendaciones de precios para Airbnb y VRBO impulsadas por IA",
         "Latest saved market average": "Último promedio guardado del mercado",
         "Previous saved market average": "Promedio anterior guardado del mercado",
         "What does relevance mean?": "¿Qué significa pertinencia?",
@@ -655,7 +662,7 @@ st.markdown(
     f"""
     <div class="hero-card">
         <div class="hero-title">Marritta Dashboard</div>
-        <div class="hero-subtitle">{tr("AI-powered pricing recommendations for Airbnb and VRBO")}</div>
+        <div class="hero-subtitle">{tr("AI-powered pricing recommendations using Airbnb, Booking.com and VRBO")}</div>
     </div>
     """,
     unsafe_allow_html=True
@@ -702,12 +709,17 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
             selected_checkout.strftime("%Y-%m-%d")
         )
 
-        official_listings = get_cached_marenas_official_prices(
+        booking_listings = get_cached_booking_prices(
             selected_checkin.strftime("%Y-%m-%d"),
             selected_checkout.strftime("%Y-%m-%d")
         )
 
-    if len(listings) > 0:
+        vrbo_listings = get_cached_vrbo_prices(
+            selected_checkin.strftime("%Y-%m-%d"),
+            selected_checkout.strftime("%Y-%m-%d")
+        )
+
+    if (len(listings) + len(booking_listings) + len(vrbo_listings)) > 0:
 
         # ---------------------------------------------------
         # BUILD COMPETITOR DATA
@@ -731,38 +743,47 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
                 "qualified_competitor": listing.get("qualified_competitor", False),
                 "Link": listing["link"],
                 "Summary": listing["raw_text"][:180] + "...",
+                "Source": "Airbnb",
             })
 
-        competitor_df = pd.DataFrame(clean_listings)
-        competitor_df = competitor_df.dropna(subset=["Competitor Price"])
-        competitor_df = competitor_df.drop_duplicates(subset=["Listing", "Competitor Price"])
+        competitor_columns = ["Listing", "Competitor Price", "Price per Night", "Relevance", "Relevance Score", "direct_competitor", "fit_score", "fit_reasons", "qualified_competitor", "Link", "Summary", "Source"]
+        competitor_df = pd.DataFrame(clean_listings, columns=competitor_columns)
+        if len(competitor_df) > 0:
+            competitor_df = competitor_df.dropna(subset=["Competitor Price"])
+            competitor_df = competitor_df.drop_duplicates(subset=["Listing", "Competitor Price"])
 
-        official_rows = []
-        for item in official_listings:
+        source_rows = []
+        for item in (booking_listings + vrbo_listings):
             price = item.get("price")
             if price is None:
                 continue
-            official_rows.append({
-                "Listing": item.get("title", "Marenas official rate"),
+            source_name = item.get("source", "Booking/VRBO")
+            source_rows.append({
+                "Listing": item.get("title", f"{source_name} listing"),
                 "Competitor Price": price,
                 "Price per Night": item.get("nightly_price") or (round(price / nights) if nights > 0 else None),
-                "Relevance": "Official",
-                "Relevance Score": 100,
-                "direct_competitor": True,
-                "fit_score": 100,
-                "fit_reasons": item.get("fit_reasons", "Official Marenas Resort rate"),
-                "qualified_competitor": True,
+                "Relevance": item.get("relevance", "Medium"),
+                "Relevance Score": item.get("relevance_score", 8),
+                "direct_competitor": item.get("direct_competitor", True),
+                "fit_score": item.get("fit_score", 8),
+                "fit_reasons": item.get("fit_reasons", f"{source_name} competitor"),
+                "qualified_competitor": item.get("qualified_competitor", False),
                 "Link": item.get("link", ""),
                 "Summary": str(item.get("raw_text", ""))[:220] + "...",
+                "Source": source_name,
             })
-        official_df = pd.DataFrame(official_rows)
-        if len(official_df) > 0:
-            official_df = official_df.dropna(subset=["Competitor Price"])
-            official_df = official_df.drop_duplicates(subset=["Listing", "Competitor Price"])
-    
-        direct_df = competitor_df[competitor_df["direct_competitor"] == True]
-        market_df = competitor_df[competitor_df["Relevance"].isin(["High", "Medium"])]
-        qualified_df = competitor_df[competitor_df["qualified_competitor"] == True]
+
+        source_df = pd.DataFrame(source_rows, columns=competitor_columns)
+        if len(source_df) > 0:
+            source_df = source_df.dropna(subset=["Competitor Price"])
+            source_df = source_df.drop_duplicates(subset=["Listing", "Competitor Price", "Source"])
+
+        airbnb_df = competitor_df.copy()
+        all_competitor_df = pd.concat([competitor_df, source_df], ignore_index=True) if len(source_df) > 0 else competitor_df.copy()
+
+        direct_df = all_competitor_df[all_competitor_df["direct_competitor"] == True]
+        market_df = all_competitor_df[all_competitor_df["Relevance"].isin(["High", "Medium"])]
+        qualified_df = all_competitor_df[all_competitor_df["qualified_competitor"] == True]
         
         if len(qualified_df) >= 2:
             pricing_df = qualified_df
@@ -775,7 +796,7 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
             pricing_source = tr("General market competitors")
 
         if len(pricing_df) == 0:
-            pricing_df = competitor_df
+            pricing_df = all_competitor_df
 
         avg_competitor_price = pricing_df["Competitor Price"].mean()
         min_competitor_price = pricing_df["Competitor Price"].min()
@@ -856,9 +877,9 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
         event_score = min(event_score, 30)
         demand_score += event_score
 
-        if len(competitor_df) <= 3:
+        if len(all_competitor_df) <= 3:
             demand_score += 20
-        elif len(competitor_df) <= 6:
+        elif len(all_competitor_df) <= 6:
             demand_score += 10
 
         if avg_competitor_price >= 1800:
@@ -874,7 +895,7 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
         # SMART PRICE ENGINE
         # ---------------------------------------------------
 
-        available_listings = len(competitor_df)
+        available_listings = len(all_competitor_df)
 
         if available_listings <= 3:
             occupancy = 90
@@ -885,7 +906,7 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
         else:
             occupancy = 65
 
-        avg_market_price = competitor_df["Price per Night"].mean()
+        avg_market_price = all_competitor_df["Price per Night"].mean()
         event_impact = 1 + (len(events_in_window) * 0.01)
 
         suggested_price = round(
@@ -1214,8 +1235,8 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
 
             m4.metric(
                 metric_label("Listings found"),
-                len(competitor_df),
-                help=tr("This is the number of Airbnb listings found by the scan for the selected dates.")
+                len(all_competitor_df),
+                help=tr("This is the total number of competitor listings found across Airbnb, Booking.com and VRBO for the selected dates.")
             )
 
             m5, _ = st.columns([1, 3])
@@ -1225,25 +1246,25 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
                 help=tr("These are listings that appear to be Marenas or very similar beachfront resort competitors.")
             )
 
-            if len(official_df) > 0:
-                om1, om2 = st.columns(2)
-                om1.metric(
-                    "Marenas official rates found",
-                    len(official_df),
-                    help="Rates found on the official Marenas Resort booking page for the selected dates."
+            if len(source_df) > 0:
+                sm1, sm2 = st.columns(2)
+                sm1.metric(
+                    "Booking + VRBO listings found",
+                    len(source_df),
+                    help="Additional competitors found on Booking.com and VRBO for the selected dates."
                 )
-                om2.metric(
-                    "Avg official Marenas rate",
-                    money(official_df["Price per Night"].mean()),
-                    help="Average nightly rate found on the official Marenas Resort website."
+                sm2.metric(
+                    "Avg Booking/VRBO nightly rate",
+                    money(source_df["Price per Night"].mean()),
+                    help="Average nightly rate found across Booking.com and VRBO."
                 )
 
             st.markdown(f"#### {tr('Competitor listings')}")
             with st.popover("ⓘ " + tr("What does relevance mean?")):
                 st.write(tr("High relevance means the listing looks very similar or very close to Marenas. Medium relevance means it is useful for comparison but may not be exactly the same. Low relevance means it is less comparable. The score is a simple point system based on words like Marenas, resort, beachfront, ocean, condo, and Sunny Isles."))
 
-            with st.expander(f"🏡 Airbnb listings found ({len(competitor_df)})", expanded=True):
-                for idx, row in competitor_df.iterrows():
+            with st.expander(f"🏡 Airbnb listings found ({len(airbnb_df)})", expanded=True):
+                for idx, row in airbnb_df.iterrows():
 
                     # Save to Supabase
                     try:
@@ -1290,16 +1311,16 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
                                 help=tr("This is the competitor total price divided by the number of selected nights.")
                             )
 
-            with st.expander(f"🏨 Marenas official website rates ({len(official_df)})", expanded=False):
-                if len(official_df) == 0:
-                    st.info("No official Marenas rates were detected for these dates. The official booking page may be sold out, slow, or blocking automated reading.")
+            with st.expander(f"🏨 Booking.com + VRBO listings found ({len(source_df)})", expanded=False):
+                if len(source_df) == 0:
+                    st.info("No Booking.com or VRBO listings were detected for these dates. Airbnb results can still be used for pricing.")
                 else:
-                    for idx, row in official_df.iterrows():
+                    for idx, row in source_df.iterrows():
                         try:
                             supabase.from_("competitor_snapshots").insert({
                                 "competitor_name": row["Listing"],
                                 "competitor_price": float(row["Competitor Price"]),
-                                "source": "Marenas Official Website"
+                                "source": row.get("Source", "Booking/VRBO")
                             }).execute()
                         except:
                             pass
@@ -1308,14 +1329,14 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
                             col_a, col_b, col_c = st.columns([3, 1, 1])
                             with col_a:
                                 st.markdown(f"### {row['Listing']}")
-                                st.caption("Official Marenas Resort website")
+                                st.caption(row.get("Source", "Booking/VRBO"))
                                 st.write(row["Summary"])
                                 if isinstance(row["Link"], str) and row["Link"].startswith("http"):
-                                    st.link_button("View on Marenas website", row["Link"])
+                                    st.link_button(f"View on {row.get('Source', 'source')}", row["Link"])
                             with col_b:
-                                st.metric("Official rate", money(row["Competitor Price"]))
+                                st.metric("Total price", money(row["Competitor Price"]))
                             with col_c:
-                                st.metric("Rate / night", money(row["Price per Night"]))
+                                st.metric("Price / night", money(row["Price per Night"]))
 
 
         # --- Expander: Daily pricing calendar ---
@@ -1523,7 +1544,7 @@ with st.sidebar:
     st.divider()
 
     st.markdown(f"### {tr('Data sources')}")
-    st.markdown(f'<div class="sidebar-status">✅ {tr("Airbnb competitor scan active")}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sidebar-status">✅ Airbnb + Booking.com + VRBO scan active</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="sidebar-status">✅ {tr("Miami events API active")}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="sidebar-status">✅ {tr("Weather forecast active")}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="sidebar-status">✅ {tr("Supabase database active")}</div>', unsafe_allow_html=True)
