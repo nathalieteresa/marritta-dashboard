@@ -173,7 +173,40 @@ def _launch_browser(p):
     )
 
 
-def get_vrbo_prices(checkin, checkout, max_detail_pages=10, max_seconds=120, use_cache=True):
+def _accept_cookies_if_present(page):
+    """Try common cookie/consent buttons without failing the scraper."""
+    labels = [
+        "Accept", "Accept all", "Accept All", "I agree", "OK", "Got it",
+        "Aceptar", "Aceptar todo", "Acepto", "Estoy de acuerdo",
+    ]
+    for label in labels:
+        try:
+            page.get_by_text(label, exact=False).first.click(timeout=2500)
+            page.wait_for_timeout(1500)
+            return True
+        except Exception:
+            pass
+    return False
+
+
+def _slow_scroll(page, rounds=7, pixels=2200, pause_ms=1800):
+    """Give Booking/VRBO more time to lazy-load cards, prices, and details."""
+    for _ in range(rounds):
+        try:
+            page.mouse.wheel(0, pixels)
+            page.wait_for_timeout(pause_ms)
+        except Exception:
+            break
+
+
+def _wait_for_body(page, timeout=15000):
+    try:
+        page.locator("body").wait_for(timeout=timeout)
+    except Exception:
+        pass
+
+
+def get_vrbo_prices(checkin, checkout, max_detail_pages=12, max_seconds=180, use_cache=True):
     if use_cache:
         cached = _read_cache("vrbo", checkin, checkout)
         if cached is not None:
@@ -189,15 +222,16 @@ def get_vrbo_prices(checkin, checkout, max_detail_pages=10, max_seconds=120, use
 
     with sync_playwright() as p:
         browser = _launch_browser(p)
-        context = browser.new_context(locale="en-US", viewport={"width": 1440, "height": 1200})
+        context = browser.new_context(locale="en-US", viewport={"width": 1440, "height": 1200}, user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
         context.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_())
         page = context.new_page()
         candidates = []
         try:
-            page.goto(search_url, wait_until="domcontentloaded", timeout=25000)
-            page.wait_for_timeout(2000)
-            for _ in range(5):
-                page.mouse.wheel(0, 4000); page.wait_for_timeout(500)
+            page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
+            _wait_for_body(page)
+            _accept_cookies_if_present(page)
+            page.wait_for_timeout(15000)
+            _slow_scroll(page, rounds=8, pixels=3000, pause_ms=2000)
             anchors = page.locator("a[href]")
             for i in range(min(anchors.count(), 250)):
                 try:
@@ -228,10 +262,11 @@ def get_vrbo_prices(checkin, checkout, max_detail_pages=10, max_seconds=120, use
             try:
                 url = c["url"]
                 detail_url = f"{url}?chkin={checkin}&chkout={checkout}&adults=6"
-                d.goto(detail_url, wait_until="domcontentloaded", timeout=18000)
-                d.wait_for_timeout(1400)
-                for _ in range(2):
-                    d.mouse.wheel(0, 2500); d.wait_for_timeout(400)
+                d.goto(detail_url, wait_until="domcontentloaded", timeout=35000)
+                _wait_for_body(d)
+                _accept_cookies_if_present(d)
+                d.wait_for_timeout(9000)
+                _slow_scroll(d, rounds=3, pixels=2200, pause_ms=1200)
                 body = _norm(d.locator("body").inner_text(timeout=5000))
                 title = _norm(d.locator("h1").first.inner_text(timeout=2500)) if d.locator("h1").count() else "VRBO listing"
                 text = c.get("card_text", "") + " " + body
@@ -251,7 +286,7 @@ def get_vrbo_prices(checkin, checkout, max_detail_pages=10, max_seconds=120, use
     return rows
 
 
-def get_booking_prices(checkin, checkout, max_detail_pages=10, max_seconds=120, use_cache=True):
+def get_booking_prices(checkin, checkout, max_detail_pages=12, max_seconds=180, use_cache=True):
     if use_cache:
         cached = _read_cache("booking", checkin, checkout)
         if cached is not None:
@@ -267,14 +302,15 @@ def get_booking_prices(checkin, checkout, max_detail_pages=10, max_seconds=120, 
 
     with sync_playwright() as p:
         browser = _launch_browser(p)
-        context = browser.new_context(locale="en-US", viewport={"width": 1440, "height": 1200})
+        context = browser.new_context(locale="en-US", viewport={"width": 1440, "height": 1200}, user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
         context.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_())
         page = context.new_page()
         try:
-            page.goto(search_url, wait_until="domcontentloaded", timeout=25000)
-            page.wait_for_timeout(2500)
-            for _ in range(4):
-                page.mouse.wheel(0, 3500); page.wait_for_timeout(500)
+            page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
+            _wait_for_body(page)
+            _accept_cookies_if_present(page)
+            page.wait_for_timeout(15000)
+            _slow_scroll(page, rounds=8, pixels=3000, pause_ms=2000)
 
             cards = page.locator("[data-testid='property-card']")
             count = min(cards.count(), max_detail_pages)
@@ -301,8 +337,11 @@ def get_booking_prices(checkin, checkout, max_detail_pages=10, max_seconds=120, 
                     if href and (not specs or not price):
                         d = context.new_page()
                         try:
-                            d.goto(href, wait_until="domcontentloaded", timeout=16000)
-                            d.wait_for_timeout(1000)
+                            d.goto(href, wait_until="domcontentloaded", timeout=35000)
+                            _wait_for_body(d)
+                            _accept_cookies_if_present(d)
+                            d.wait_for_timeout(7000)
+                            _slow_scroll(d, rounds=2, pixels=2200, pause_ms=1000)
                             body = _norm(d.locator("body").inner_text(timeout=5000))
                             text = text + " " + body
                             if not price:
