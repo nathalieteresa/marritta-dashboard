@@ -258,17 +258,18 @@ def _build_search_urls(checkin, checkout):
         "&room_types%5B%5D=Entire%20home%2Fapt"
     )
 
-    # Broad Sunny Isles search, then we filter by your existing rules:
-    # 6 guests + 2 bedrooms + 2/2.5/3 baths + Entire home/apt + exclude Ritta/Marritta.
-    # We do NOT force the listing to mention Marenas because Airbnb often hides exact resort/address.
+    # Broad enough to capture Sunny Isles Airbnb listings, but the detail-page
+    # filter below keeps only the user's core competitor specs.
+    # IMPORTANT: Do not require the listing text to mention Marenas, because
+    # many real Marenas units do not show the building name/address in Airbnb search.
     queries = [
         "Sunny Isles Beach",
-        "Sunny Isles Beach condo",
-        "Sunny Isles Beach beachfront",
-        "Sunny Isles Beach ocean view",
-        "Collins Avenue Sunny Isles",
-        "Marenas Sunny Isles",
+        "Sunny Isles Beach beachfront condo",
+        "Sunny Isles Beach ocean view condo",
+        "Sunny Isles Beach Collins Avenue condo",
         "Marenas Beach Resort",
+        "Marenas Sunny Isles",
+        "18683 Collins Ave",
     ]
 
     urls = []
@@ -346,8 +347,6 @@ def _qualified(specs, combined_text, title, url, price):
     if _is_bad_title(title):
         return False, "Bad/non-listing title", False
 
-    # We keep this only as a confidence label, NOT as a hard filter.
-    # Airbnb often does not reveal the exact building/resort/address in the listing text.
     marenas_text = " ".join([combined_text or "", title or "", url or ""])
     marenas_confirmed = _is_marenas_listing(marenas_text)
 
@@ -365,11 +364,11 @@ def _qualified(specs, combined_text, title, url, price):
         return False, "Price not found", False
 
     if marenas_confirmed:
-        return True, "Confirmed Marenas mention + core specs: 6 guests · 2 bedrooms · 2/2.5/3 baths", False
+        return True, "Confirmed Marenas + core specs: 6 guests · 2 bedrooms · 2/2.5/3 baths", False
 
-    return True, "Sunny Isles competitor: core specs match, Marenas/address not visible on Airbnb", False
+    return True, "Sunny Isles core competitor: 6 guests · 2 bedrooms · 2/2.5/3 baths; Marenas name/address not visible", False
 
-def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_seconds=300):
+def get_airbnb_prices(checkin, checkout, max_detail_pages=80, debug=True, max_seconds=420):
     listings = []
     debug_rows = []
     seen = set()
@@ -529,18 +528,18 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=35, debug=True, max_se
                     "link": link,
                     "raw_text": body[:1200],
                     "price": price,
-                    "relevance": "High",
-                    "relevance_score": 15,
+                    "relevance": "High" if _is_marenas_listing(" ".join([body, card_text, title, link])) else "Medium",
+                    "relevance_score": 15 if _is_marenas_listing(" ".join([body, card_text, title, link])) else 10,
                     "direct_competitor": True,
-                    "fit_score": 15,
-                    "fit_reasons": "Sunny Isles Beach search + 6 guests · 2 bedrooms · 2/2.5/3 baths; Ritta/Marritta excluded",
+                    "fit_score": 15 if _is_marenas_listing(" ".join([body, card_text, title, link])) else 10,
+                    "fit_reasons": reason + "; Ritta/Marritta excluded",
                     "penalty_reasons": "",
                     "qualified_competitor": True,
                     "guest_count": specs["guest_count"],
                     "bedroom_count": specs["bedroom_count"],
                     "bed_count": specs["bed_count"],
                     "bathroom_count": specs["bathroom_count"],
-                    "match_quality": "Sunny Isles competitor + core Airbnb specs match",
+                    "match_quality": reason,
                     "specs_line": specs["specs_line"],
                 })
 
