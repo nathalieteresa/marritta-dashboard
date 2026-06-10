@@ -2,6 +2,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 import re
 import csv
 import time
+import json
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, quote
 
@@ -238,10 +239,10 @@ def _extract_full_detail_text(page):
     except Exception:
         pass
 
-    for y in [1500, 3500, 6500, 9500, 12500]:
+    for y in [1800, 5000, 8500]:
         try:
             page.evaluate(f"window.scrollTo(0, {y})")
-            page.wait_for_timeout(450)
+            page.wait_for_timeout(250)
             parts.append(page.locator("body").inner_text(timeout=3000))
         except Exception:
             pass
@@ -258,15 +259,11 @@ def _build_search_urls(checkin, checkout):
         "&room_types%5B%5D=Entire%20home%2Fapt"
     )
 
-    # Broad enough to capture Sunny Isles Airbnb listings, but the detail-page
-    # filter below keeps only the user's core competitor specs.
-    # IMPORTANT: Do not require the listing text to mention Marenas, because
-    # many real Marenas units do not show the building name/address in Airbnb search.
+    # Balanced search: broad enough to find competitors in Sunny Isles,
+    # but avoids known unrelated buildings such as Trump / Ocean Reserve.
     queries = [
-        "Sunny Isles Beach",
         "Sunny Isles Beach beachfront condo",
-        "Sunny Isles Beach ocean view condo",
-        "Sunny Isles Beach Collins Avenue condo",
+        "Sunny Isles Beach condo Collins Avenue",
         "Marenas Beach Resort",
         "Marenas Sunny Isles",
         "18683 Collins Ave",
@@ -366,9 +363,35 @@ def _qualified(specs, combined_text, title, url, price):
     if marenas_confirmed:
         return True, "Confirmed Marenas + core specs: 6 guests · 2 bedrooms · 2/2.5/3 baths", False
 
-    return True, "Sunny Isles core competitor: 6 guests · 2 bedrooms · 2/2.5/3 baths; Marenas name/address not visible", False
+    return True, "Sunny Isles competitor + core specs: 6 guests · 2 bedrooms · 2/2.5/3 baths", False
 
-def get_airbnb_prices(checkin, checkout, max_detail_pages=80, debug=True, max_seconds=420):
+def _cache_file(checkin, checkout):
+    cache_dir = Path("airbnb_cache")
+    cache_dir.mkdir(exist_ok=True)
+    safe = re.sub(r"[^0-9A-Za-z_-]+", "_", f"{checkin}_{checkout}")
+    return cache_dir / f"airbnb_{safe}.json"
+
+def _read_cache(checkin, checkout, ttl_seconds=60*60*3):
+    path = _cache_file(checkin, checkout)
+    try:
+        if path.exists() and time.time() - path.stat().st_mtime < ttl_seconds:
+            return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return None
+
+def _write_cache(checkin, checkout, listings):
+    try:
+        _cache_file(checkin, checkout).write_text(json.dumps(listings, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+def get_airbnb_prices(checkin, checkout, max_detail_pages=12, debug=True, max_seconds=150, use_cache=True):
+    if use_cache:
+        cached = _read_cache(checkin, checkout)
+        if cached is not None:
+            return cached
+
     listings = []
     debug_rows = []
     seen = set()
@@ -413,10 +436,10 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=80, debug=True, max_se
                 except Exception:
                     page.goto(url, wait_until="domcontentloaded", timeout=18000)
 
-                page.wait_for_timeout(1200)
-                for _ in range(8):
+                page.wait_for_timeout(800)
+                for _ in range(4):
                     page.mouse.wheel(0, 4500)
-                    page.wait_for_timeout(800)
+                    page.wait_for_timeout(350)
 
                 if debug:
                     try:
@@ -449,6 +472,28 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=80, debug=True, max_se
             card_text = candidate.get("card_text", "")
             card_price = candidate.get("card_price")
 
+            # Fast pre-filter: if the search card already clearly shows specs
+            # and they do not match, skip opening the detail page.
+            card_specs = _parse_specs_from_text(card_text)
+            if card_specs and not (
+                card_specs.get("guest_count") == 6 and
+                card_specs.get("bedroom_count") == 2 and
+                float(card_specs.get("bathroom_count")) in [2.0, 2.5, 3.0]
+            ):
+                debug_rows.append({
+                    "n": n,
+                    "url": link,
+                    "title": _norm(card_text[:90]) or "Airbnb Listing",
+                    "status": "skipped_card",
+                    "specs_found": card_specs.get("specs_line", ""),
+                    "qualified": False,
+                    "reason": f"Card specs mismatch: {card_specs.get('specs_line')}",
+                    "price": card_price or "",
+                    "ritta_detected": _is_excluded_host(card_text),
+                    "card_price": card_price or "",
+                })
+                continue
+
             detail_page = context.new_page()
             status = "opened"
             specs = None
@@ -462,12 +507,12 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=80, debug=True, max_se
                 # pre-calcule el precio total correcto para esas noches.
                 link_with_dates = f"{link}?checkin={checkin}&checkout={checkout}&adults=6"
                 try:
-                    detail_page.goto(link_with_dates, wait_until="domcontentloaded", timeout=15000)
+                    detail_page.goto(link_with_dates, wait_until="domcontentloaded", timeout=10000)
                 except Exception:
-                    detail_page.goto(link_with_dates, wait_until="domcontentloaded", timeout=15000)
+                    detail_page.goto(link_with_dates, wait_until="domcontentloaded", timeout=10000)
 
                 # ✅ FIX: esperar más para que carguen los specs y el panel de precios
-                detail_page.wait_for_timeout(2500)
+                detail_page.wait_for_timeout(1200)
                 specs = _extract_airbnb_specs_from_detail_page(detail_page)
                 body = _extract_full_detail_text(detail_page)
                 title = _extract_title(detail_page, fallback=card_text[:90] if card_text else "Airbnb Listing")
@@ -528,10 +573,10 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=80, debug=True, max_se
                     "link": link,
                     "raw_text": body[:1200],
                     "price": price,
-                    "relevance": "High" if _is_marenas_listing(" ".join([body, card_text, title, link])) else "Medium",
-                    "relevance_score": 15 if _is_marenas_listing(" ".join([body, card_text, title, link])) else 10,
+                    "relevance": "High",
+                    "relevance_score": 15,
                     "direct_competitor": True,
-                    "fit_score": 15 if _is_marenas_listing(" ".join([body, card_text, title, link])) else 10,
+                    "fit_score": 15,
                     "fit_reasons": reason + "; Ritta/Marritta excluded",
                     "penalty_reasons": "",
                     "qualified_competitor": True,
@@ -562,5 +607,8 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=80, debug=True, max_se
                 writer.writerows(debug_rows)
         except Exception:
             pass
+
+    if use_cache and listings:
+        _write_cache(checkin, checkout, listings)
 
     return listings
