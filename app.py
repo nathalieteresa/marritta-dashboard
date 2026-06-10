@@ -34,9 +34,9 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 :root {
-    --purple: #7C3AED;
-    --purple-dark: #5B21B6;
-    --purple-soft: #A78BFA;
+    --blue: #2563EB;
+    --blue-dark: #1E40AF;
+    --blue-soft: #93C5FD;
     --mint: #34D399;
     --pink: #FB7185;
     --yellow: #FDE047;
@@ -54,7 +54,7 @@ html, body, [class*="css"] {
     background:
         radial-gradient(circle at 20% 10%, rgba(196, 181, 253, 0.95) 0, rgba(196, 181, 253, 0) 28%),
         radial-gradient(circle at 80% 15%, rgba(167, 139, 250, 0.85) 0, rgba(167, 139, 250, 0) 26%),
-        linear-gradient(135deg, #8B5CF6 0%, #6D28D9 48%, #A78BFA 100%);
+        linear-gradient(135deg, #3B82F6 0%, #1D4ED8 48%, #93C5FD 100%);
 }
 
 .block-container {
@@ -91,7 +91,7 @@ h2 { margin-top: 1.6rem !important; }
     font-size: 42px;
     line-height: 1.05;
     font-weight: 900;
-    color: var(--purple-dark);
+    color: var(--blue-dark);
     margin-bottom: 8px;
 }
 
@@ -114,7 +114,7 @@ p code, li code, div code {
 
 /* BIG price decision card */
 .decision-card {
-    background: linear-gradient(135deg, #6D28D9 0%, #8B5CF6 100%);
+    background: linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%);
     border-radius: 28px;
     padding: 36px 40px;
     color: white;
@@ -194,7 +194,7 @@ p code, li code, div code {
 }
 
 .stButton>button, .stLinkButton a {
-    background: linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%) !important;
+    background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%) !important;
     color: white !important;
     border-radius: 16px !important;
     border: none !important;
@@ -221,7 +221,7 @@ p code, li code, div code {
 }
 
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #8B5CF6 0%, #6D28D9 58%, #5B21B6 100%);
+    background: linear-gradient(180deg, #3B82F6 0%, #1D4ED8 58%, #1E40AF 100%);
     border-right: 1px solid rgba(255,255,255,0.25);
     box-shadow: 15px 0 45px rgba(76, 29, 149, 0.22);
 }
@@ -304,7 +304,7 @@ hr {
 .login-title {
     font-size: 38px !important;
     font-weight: 900 !important;
-    color: #5B21B6 !important;
+    color: #1E40AF !important;
     margin-bottom: 8px !important;
 }
 
@@ -503,7 +503,7 @@ if not st.session_state.logged_in:
             radial-gradient(circle at 25% 20%, rgba(37, 24, 140, 0.95), transparent 28%),
             radial-gradient(circle at 78% 28%, rgba(167, 139, 250, 0.75), transparent 30%),
             radial-gradient(circle at 45% 78%, rgba(76, 29, 149, 0.95), transparent 34%),
-            linear-gradient(135deg, #1E1065 0%, #4C1D95 48%, #8B5CF6 100%) !important;
+            linear-gradient(135deg, #0B1F4D 0%, #1E3A8A 48%, #3B82F6 100%) !important;
     }
 
     .block-container {
@@ -550,7 +550,7 @@ if not st.session_state.logged_in:
         height: 44px !important;
         border-radius: 999px !important;
         background: rgba(255,255,255,0.88) !important;
-        color: #4C1D95 !important;
+        color: #1E3A8A !important;
         font-weight: 900 !important;
         border: none !important;
         box-shadow: none !important;
