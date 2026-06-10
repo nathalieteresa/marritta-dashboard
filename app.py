@@ -8,9 +8,9 @@ from events_api import get_miami_events
 from database import supabase
 from competitor_scraper import get_airbnb_prices
 
-@st.cache_data(ttl=60 * 10, show_spinner=False)
+@st.cache_data(ttl=60 * 60 * 3, show_spinner="Analizando competidores en Airbnb... puede tardar 1–2 minutos la primera vez.")
 def get_cached_airbnb_prices(checkin: str, checkout: str):
-    return get_airbnb_prices(checkin, checkout)
+    return get_airbnb_prices(checkin, checkout, max_detail_pages=12, max_seconds=150, use_cache=True)
 from holiday_engine import get_us_holidays_in_range
 from weather_engine import get_weather_forecast, get_weather_signal
 from deep_translator import GoogleTranslator
