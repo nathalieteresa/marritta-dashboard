@@ -29,6 +29,18 @@ def _is_marenas_listing(text):
     low = _norm(text).lower()
     return any(term in low for term in MARENAS_MATCH_TERMS)
 
+# Sunny Isles Beach filter
+SUNNY_ISLES_TERMS = [
+    "sunny isles",
+    "sunny isles beach",
+    "sunny isles beach, fl",
+    "sunny isles beach florida",
+]
+
+def _is_sunny_isles_listing(text):
+    low = _norm(text).lower()
+    return any(term in low for term in SUNNY_ISLES_TERMS)
+
 PRICE_RE = re.compile(r"\$\s?([1-9][0-9,]*(?:\.\d{2})?)")
 ROOM_ID_RE = re.compile(r"/rooms/(\d+)")
 BAD_TITLE_SNIPPETS = [
@@ -344,8 +356,14 @@ def _qualified(specs, combined_text, title, url, price):
     if _is_bad_title(title):
         return False, "Bad/non-listing title", False
 
-    marenas_text = " ".join([combined_text or "", title or "", url or ""])
-    marenas_confirmed = _is_marenas_listing(marenas_text)
+    location_text = " ".join([combined_text or "", title or "", url or ""])
+    marenas_confirmed = _is_marenas_listing(location_text)
+    sunny_isles_confirmed = _is_sunny_isles_listing(location_text)
+
+    # User requirement: show only competitors that can be confirmed as Sunny Isles Beach.
+    # Marenas is allowed because it is located in Sunny Isles Beach.
+    if not (sunny_isles_confirmed or marenas_confirmed):
+        return False, "Not confirmed as Sunny Isles Beach", False
 
     if not specs:
         return False, "Specs not found", False
@@ -363,7 +381,7 @@ def _qualified(specs, combined_text, title, url, price):
     if marenas_confirmed:
         return True, "Confirmed Marenas + core specs: 6 guests · 2 bedrooms · 2/2.5/3 baths", False
 
-    return True, "Sunny Isles competitor + core specs: 6 guests · 2 bedrooms · 2/2.5/3 baths", False
+    return True, "Confirmed Sunny Isles Beach competitor + core specs: 6 guests · 2 bedrooms · 2/2.5/3 baths", False
 
 def _cache_file(checkin, checkout):
     cache_dir = Path("airbnb_cache")
@@ -386,7 +404,7 @@ def _write_cache(checkin, checkout, listings):
     except Exception:
         pass
 
-def get_airbnb_prices(checkin, checkout, max_detail_pages=12, debug=True, max_seconds=150, use_cache=True):
+def get_airbnb_prices(checkin, checkout, max_detail_pages=36, debug=True, max_seconds=300, use_cache=True):
     if use_cache:
         cached = _read_cache(checkin, checkout)
         if cached is not None:
@@ -588,8 +606,8 @@ def get_airbnb_prices(checkin, checkout, max_detail_pages=12, debug=True, max_se
                     "specs_line": specs["specs_line"],
                 })
 
-                if len(listings) >= 12:
-                    break
+                # Keep collecting qualified Sunny Isles Beach competitors until the time/detail budget ends.
+                # No artificial cap here; app.py controls max_detail_pages and max_seconds.
 
         browser.close()
 

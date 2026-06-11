@@ -681,7 +681,7 @@ st.markdown("")
 
 if st.button(f"🔍 {tr('Analyze Market')}"):
 
-    with st.spinner(tr("Scanning Airbnb competitor listings...")):
+    with st.spinner(tr("Scanning Airbnb Sunny Isles Beach competitor listings...")):
 
         events = get_miami_events(
             selected_checkin.strftime("%Y-%m-%d"),
@@ -1198,7 +1198,7 @@ if st.button(f"🔍 {tr('Analyze Market')}"):
             with st.popover("ⓘ " + tr("What does relevance mean?")):
                 st.write(tr("High relevance means the listing looks very similar or very close to Marenas. Medium relevance means it is useful for comparison but may not be exactly the same. Low relevance means it is less comparable. The score is a simple point system based on words like Marenas, resort, beachfront, ocean, condo, and Sunny Isles."))
 
-            with st.expander(f"🏡 Airbnb listings found ({len(airbnb_df)})", expanded=True):
+            with st.expander(f"🏡 Sunny Isles Beach Airbnb listings found ({len(airbnb_df)})", expanded=True):
                 for idx, row in airbnb_df.iterrows():
 
                     # Save to Supabase
